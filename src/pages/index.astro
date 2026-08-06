@@ -23,6 +23,8 @@ const params = Astro.url.searchParams;
 const rangeParam = params.get('range') ?? '7d';
 const range: DateRange = isDateRange(rangeParam) ? rangeParam : '7d';
 const mineOnly = params.get('prs') !== 'all';
+const flash = params.get('flash');
+const flashMessage = params.get('message');
 
 const { sites, problems } = await loadRegistry();
 const repos = sites
@@ -126,6 +128,12 @@ const scopeHref = (scope: 'mine' | 'all') => {
   </div>
 
   {
+    flash && flashMessage && (
+      <p class={`flash ${flash === 'ok' ? 'is-ok' : 'is-error'}`}>{flashMessage}</p>
+    )
+  }
+
+  {
     problems.length > 0 && (
       <div class="panel-note is-error">
         <span aria-hidden="true">×</span>
@@ -142,10 +150,10 @@ const scopeHref = (scope: 'mine' | 'all') => {
       <div class="card empty-state">
         <h2>Add your first site</h2>
         <p>
-          Control Room needs to know which sites are yours. Give it a URL and it
-          will search your connected services for a matching Cloudflare zone,
-          Netlify site, Plausible property and GitHub repo, then show you what it
-          found before saving anything.
+          Control Room needs to know which sites are yours. Give it a URL and
+          it will find the matching Cloudflare zone, Netlify site, Plausible
+          property and GitHub repo as it saves — or pick straight from your
+          Cloudflare zones.
         </p>
         <div class="empty-state-actions">
           <a class="button is-primary" href="/sites/new">Add a site</a>

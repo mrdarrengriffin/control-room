@@ -566,9 +566,95 @@ h3 {
   margin-bottom: 12px;
 }
 
+/* Secondary explanatory text. Was only ever defined inside .card-head, so the
+   same class elsewhere rendered at full body size and weight. */
+.hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+  /* Beside a button in a .button-row: take the remaining width and wrap, rather
+     than forcing the row wider than its card. */
+  min-width: 0;
+}
+
 .card-head .hint {
   color: var(--ink-muted);
   font-size: 12px;
+}
+
+.button-row .hint {
+  flex: 1 1 16rem;
+}
+
+/* --- Discovered domains --------------------------------------------------- */
+
+.scan-list {
+  list-style: none;
+  /* Bottom margin matters: the Add/Refresh row sits directly beneath and was
+     touching the list border without it. */
+  margin: 4px 0 14px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* Long inventories are normal — 24 Cloudflare zones on the install this was
+     built against — so the list scrolls rather than burying the Add button. */
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.scan-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.scan-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.scan-item:hover {
+  background: var(--surface-sunken);
+}
+
+.scan-domain {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Zones that are already sites. Shown so the list reads as the full Cloudflare
+   inventory rather than a mystery subset, but visibly inert. */
+.scan-list .is-added .scan-item {
+  cursor: default;
+  color: var(--ink-muted);
+}
+
+.scan-list .is-added .scan-item:hover {
+  background: none;
+}
+
+.scan-list .is-added input {
+  /* Greyed rather than hidden: the ticked box is what says "already have it". */
+  opacity: 0.45;
+}
+
+.scan-note {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+/* Read-only export text: monospace so a long domain list stays scannable, and
+   it never grows the page — the box scrolls instead. */
+.export-box {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
 }
 
 /* --- Debug page ----------------------------------------------------------- */

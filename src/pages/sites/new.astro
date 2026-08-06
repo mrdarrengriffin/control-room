@@ -1,43 +1,38 @@
 ---
 import Shell from '../../layouts/Shell.astro';
-import StatusPill from '../../components/StatusPill.astro';
-import type { Tone } from '../../components/StatusPill.astro';
-import { discoverSite } from '../../lib/discover';
-import type { Discovery, FindingStatus } from '../../lib/discover';
+import { forgetScan, scanCloudflare } from '../../lib/scan';
+import type { ScanResult } from '../../lib/scan';
 import { messageOf } from '../../lib/types';
 
+/**
+ * Adding sites: one at a time by URL, or in bulk from Cloudflare.
+ *
+ * There used to be a confirmation step — look the URL up, review four findings,
+ * then save. It has gone. Everything it showed can be changed afterwards on the
+ * site's own edit page, so the review screen only ever stood between you and
+ * the thing you had already decided to do. Discovery still runs; it just runs
+ * on the way in rather than in front of you.
+ */
+
 const params = Astro.url.searchParams;
-const rawUrl = params.get('url')?.trim() ?? '';
 const flash = params.get('flash');
 const flashMessage = params.get('message');
 
-let discovery: Discovery | undefined;
-let discoveryError: string | undefined;
-
-if (rawUrl !== '') {
-  try {
-    discovery = await discoverSite(rawUrl);
-  } catch (error) {
-    discoveryError = messageOf(error);
-  }
-}
-
 /*
- * 'unavailable' means the service itself isn't connected, which is a different
- * thing from "this site isn't on it" — so it gets the warning tone and points at
- * settings, while a genuine miss stays neutral.
+ * The zone list is cached for an hour with stale-while-revalidate and this page
+ * re-renders on its own timer, so the scan stays current without a scheduler.
+ * ?rescan=1 drops just that cache entry for when you have only now added a zone.
  */
-const TONES: Record<FindingStatus, Tone> = {
-  found: 'good',
-  'not-found': 'neutral',
-  unavailable: 'warning',
-};
+if (params.has('rescan')) forgetScan();
 
-const LABELS: Record<FindingStatus, string> = {
-  found: 'found',
-  'not-found': 'not found',
-  unavailable: 'not connected',
-};
+let scan: ScanResult | undefined;
+let scanError: string | undefined;
+
+try {
+  scan = await scanCloudflare();
+} catch (error) {
+  scanError = messageOf(error);
+}
 ---
 
 <Shell title="Add a site">
@@ -45,8 +40,9 @@ const LABELS: Record<FindingStatus, string> = {
     <div>
       <h1>Add a site</h1>
       <p>
-        Give a URL. Connected services are searched for a matching zone, deploy
-        site, analytics property and repository.
+        Give a URL, or pick from the Cloudflare zones below. Connected services
+        are searched as it saves, and anything they miss can be filled in by
+        editing the site.
       </p>
     </div>
   </div>
@@ -58,212 +54,124 @@ const LABELS: Record<FindingStatus, string> = {
   }
 
   <div class="card">
-    <form method="GET" action="/sites/new" class="url-form">
+    <form method="POST" action="/api/sites/add" class="url-form">
       <div class="field" style="flex:1 1 320px; margin:0">
         <label for="url">Site URL</label>
         <input
           type="text"
           id="url"
           name="url"
-          value={rawUrl}
           placeholder="https://example.org"
           autocomplete="off"
           spellcheck="false"
           required
         />
       </div>
-      <button class="button is-primary" type="submit">Look it up</button>
+      <button class="button is-primary" type="submit">Add site</button>
     </form>
+
+    <p class="setting-hint">
+      A path is kept as a test page, not a separate site — adding
+      <code>example.org/docs</code> gives you the site with <code>/docs</code>
+      ready to audit.
+    </p>
   </div>
 
-  {
-    discoveryError && (
-      <p class="panel-note is-error">
-        <span aria-hidden="true">×</span>
-        <span>{discoveryError}</span>
-      </p>
-    )
-  }
+  {scanError && <p class="flash is-error">{scanError}</p>}
 
   {
-    discovery && (
-      <>
-        <div class="card">
-          <div class="card-head">
-            <h2>What was found for {discovery.hostname}</h2>
-          </div>
-
-          <div class="record-list">
-            {
-              [
-                { name: 'Cloudflare', finding: discovery.cloudflare },
-                { name: 'Netlify', finding: discovery.netlify },
-                { name: 'Plausible', finding: discovery.plausible },
-                { name: 'GitHub', finding: discovery.github },
-              ].map((row) => (
-                <div class="record">
-                  <div class="record-main">
-                    <span class="record-title">{row.name}</span>
-                    <div class="record-meta">
-                      <span>{row.finding.detail}</span>
-                    </div>
-                  </div>
-                  <StatusPill
-                    tone={TONES[row.finding.status]}
-                    label={LABELS[row.finding.status]}
-                  />
-                </div>
-              ))
-            }
-          </div>
-
-          {
-            discovery.github.status === 'found' &&
-              discovery.github.value &&
-              !discovery.github.value.certain && (
-                <p class="panel-note" style="margin-top:12px">
-                  <span aria-hidden="true">!</span>
-                  <span>
-                    <strong>Repository is a guess. </strong>
-                    It was matched by name, not confirmed by a deploy. Check it
-                    before saving.
-                  </span>
-                </p>
-              )
-          }
+    scan && (
+      <section class="card">
+        <div class="card-head">
+          <h2>From Cloudflare</h2>
+          <span class="hint">
+            {scan.status !== 'ok'
+              ? 'Not available'
+              : scan.candidates.length === 0
+                ? `All ${scan.total} zones already added`
+                : `${scan.candidates.length} of ${scan.total} zones not added yet`}
+          </span>
         </div>
 
-        <div class="card">
-          <div class="card-head">
-            <h2>Confirm and save</h2>
-            <span class="hint">Everything is editable</span>
-          </div>
+        {scan.status === 'unconfigured' ? (
+          <p class="empty">
+            Connect Cloudflare in <a href="/settings">Settings</a> and your zones
+            will be listed here, ready to add.
+          </p>
+        ) : scan.status === 'error' ? (
+          <p class="panel-note is-error">
+            <span aria-hidden="true">×</span>
+            <span>{scan.detail}</span>
+          </p>
+        ) : (
+          <form method="POST" action="/api/sites/import">
+            <input type="hidden" name="from" value="new" />
 
-          <form method="POST" action="/api/sites/add">
-            <input type="hidden" name="url" value={discovery.url} />
+            {/* Two dozen zones is normal, so ticking one at a time is not a
+                reasonable ask. Inert without JavaScript; the checkboxes still
+                work. */}
+            {scan.candidates.length > 0 && (
+              <div class="button-row" style="margin-bottom:8px">
+                <button class="button" type="button" data-scan-all>Select all</button>
+                <button class="button" type="button" data-scan-none>Select none</button>
+              </div>
+            )}
 
-            <div class="grid grid-2">
-              <div class="field">
-                <label for="name">Name</label>
-                <input type="text" id="name" name="name" value={discovery.name} />
-              </div>
-              <div class="field">
-                <label for="slug">Slug</label>
-                <input type="text" id="slug" name="slug" value={discovery.slug} />
-              </div>
-            </div>
-
-            <div class="field">
-              <label for="description">Description</label>
-              <input type="text" id="description" name="description" placeholder="Optional" />
-            </div>
-
-            <div class="grid grid-2">
-              <div class="field">
-                <label for="cloudflareZoneId">Cloudflare zone id</label>
-                <input
-                  type="text"
-                  id="cloudflareZoneId"
-                  name="cloudflareZoneId"
-                  value={discovery.cloudflare.value?.zoneId ?? ''}
-                  placeholder="Leave blank to disable cache purging"
-                />
-              </div>
-              <div class="field">
-                <label for="netlifySiteId">Netlify site id</label>
-                <input
-                  type="text"
-                  id="netlifySiteId"
-                  name="netlifySiteId"
-                  placeholder="Leave blank — matched by domain automatically"
-                />
-              </div>
-            </div>
-
-            <div class="grid grid-3">
-              <div class="field">
-                <label for="plausibleDomain">Plausible domain</label>
-                <input
-                  type="text"
-                  id="plausibleDomain"
-                  name="plausibleDomain"
-                  value={discovery.plausible.value?.domain ?? ''}
-                  placeholder="Leave blank for no analytics"
-                />
-              </div>
-              <div class="field">
-                <label for="plausibleBaseUrl">Plausible instance</label>
-                <input
-                  type="text"
-                  id="plausibleBaseUrl"
-                  name="plausibleBaseUrl"
-                  value={discovery.plausible.value?.baseUrl ?? ''}
-                  placeholder="Blank = default instance"
-                />
-              </div>
-              <div class="field">
-                <label for="plausibleKeyEnv">Plausible key variable</label>
-                <input
-                  type="text"
-                  id="plausibleKeyEnv"
-                  name="plausibleKeyEnv"
-                  value={discovery.plausible.value?.keyEnv ?? ''}
-                  placeholder="Blank = PLAUSIBLE_API_KEY"
-                />
-              </div>
-            </div>
-
-            <div class="field">
-              <label for="githubRepo">GitHub repository</label>
-              <input
-                type="text"
-                id="githubRepo"
-                name="githubRepo"
-                value={discovery.github.value?.repo ?? ''}
-                placeholder="owner/repo"
-                list="repo-candidates"
-              />
-              {
-                discovery.githubCandidates.length > 0 && (
-                  <datalist id="repo-candidates">
-                    {
-                      discovery.githubCandidates.map((candidate) => (
-                        <option value={candidate}></option>
-                      ))
-                    }
-                  </datalist>
-                )
-              }
-              {
-                discovery.githubCandidates.length > 0 && (
-                  <span class="setting-hint">
-                    Other matches: {discovery.githubCandidates.join(', ')}
+            {/* Every zone, not just the new ones. Seeing what is already here
+                is how you tell "nothing to add" apart from "Cloudflare returned
+                nothing", and it makes the list a readable inventory. */}
+            <ul class="scan-list">
+              {scan.candidates.map((domain) => (
+                <li>
+                  <label class="scan-item">
+                    <input type="checkbox" name="domains" value={domain} />
+                    <span class="scan-domain">{domain}</span>
+                  </label>
+                </li>
+              ))}
+              {scan.alreadyAdded.map((domain) => (
+                <li class="is-added">
+                  <span class="scan-item">
+                    <input type="checkbox" checked disabled />
+                    <span class="scan-domain">{domain}</span>
+                    <span class="scan-note">added</span>
                   </span>
-                )
-              }
-            </div>
+                </li>
+              ))}
+            </ul>
 
-            <div class="grid grid-2">
-              <div class="field">
-                <label for="testPages">Test pages (one path per line)</label>
-                <textarea id="testPages" name="testPages">/</textarea>
-              </div>
-              <div class="field">
-                <label for="interactivePages">
-                  Interactive pages — scroll-driven sections
-                </label>
-                <textarea
-                  id="interactivePages"
-                  name="interactivePages"
-                  placeholder="/product-page/"
-                ></textarea>
-              </div>
+            <div class="button-row">
+              {scan.candidates.length > 0 && (
+                <button class="button is-primary" type="submit">Add selected</button>
+              )}
+              <a class="button" href="/sites/new?rescan=1">Refresh from Cloudflare</a>
+              <span class="hint">
+                {scan.candidates.length === 0
+                  ? 'Every Cloudflare zone is already a site here. '
+                  : 'These are added by domain — open a site afterwards to fill in its deploy and repository. '}
+                The zone list is re-read hourly.
+              </span>
             </div>
-
-            <button class="button is-primary" type="submit">Add site</button>
           </form>
-        </div>
-      </>
+        )}
+      </section>
     )
   }
+
+  <script>
+    // Bulk tick for the zone list. Only the addable ones: the already-added rows
+    // carry a ticked, disabled box to show they are here already, and unticking
+    // those made them read as not added.
+    const boxes = () =>
+      document.querySelectorAll<HTMLInputElement>('.scan-list input[name="domains"]');
+    const setAll = (checked: boolean) => {
+      for (const box of boxes()) box.checked = checked;
+    };
+    document
+      .querySelector('[data-scan-all]')
+      ?.addEventListener('click', () => setAll(true));
+    document
+      .querySelector('[data-scan-none]')
+      ?.addEventListener('click', () => setAll(false));
+  </script>
 </Shell>

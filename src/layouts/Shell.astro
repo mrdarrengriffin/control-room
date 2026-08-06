@@ -18,6 +18,7 @@ const isDashboard = path === '/';
 const isSettings = path === '/settings';
 const isDebug = path === '/debug';
 const isAddSite = path === '/sites/new';
+const isImport = path === '/sites/import';
 
 /*
  * Visitors on each site right now. Cached for 20s inside the provider, because
@@ -141,6 +142,11 @@ const labelFor = (site: (typeof sites)[number]): string =>
               <li>
                 <a href="/sites/new" aria-current={isAddSite ? 'page' : undefined}>
                   + Add a site
+                </a>
+              </li>
+              <li>
+                <a href="/sites/import" aria-current={isImport ? 'page' : undefined}>
+                  Import &amp; export
                 </a>
               </li>
             </ul>

@@ -135,21 +135,7 @@ const netlifyEnabled = site.netlify?.enabled !== false;
         </div>
       </div>
 
-      <div class="grid grid-2">
-        <div class="field">
-          <label for="description">Description</label>
-          <input
-            type="text"
-            id="description"
-            name="description"
-            value={site.description ?? ''}
-          />
-        </div>
-        <div class="field">
-          <label for="tags">Tags — comma separated</label>
-          <input type="text" id="tags" name="tags" value={(site.tags ?? []).join(', ')} />
-        </div>
-      </div>
+
     </div>
 
     <div class="card">
@@ -222,26 +208,6 @@ const netlifyEnabled = site.netlify?.enabled !== false;
             name="plausibleDomain"
             value={prefill(site.plausible?.domain, discovery?.plausible.value?.domain)}
             placeholder="Blank disables analytics"
-          />
-        </div>
-        <div class="field">
-          <label for="plausibleBaseUrl">Plausible instance</label>
-          <input
-            type="text"
-            id="plausibleBaseUrl"
-            name="plausibleBaseUrl"
-            value={prefill(site.plausible?.baseUrl, discovery?.plausible.value?.baseUrl)}
-            placeholder="Blank = default instance"
-          />
-        </div>
-        <div class="field">
-          <label for="plausibleKeyEnv">Plausible key variable</label>
-          <input
-            type="text"
-            id="plausibleKeyEnv"
-            name="plausibleKeyEnv"
-            value={prefill(site.plausible?.keyEnv, discovery?.plausible.value?.keyEnv)}
-            placeholder="Blank = PLAUSIBLE_API_KEY"
           />
         </div>
       </div>
