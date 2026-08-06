@@ -23,7 +23,9 @@ services:
       # CONTROL_ROOM_BIND=0.0.0.0 — but read the note in the README first: over
       # plain HTTP the password crosses the network in the clear, so put it
       # behind TLS or a private network such as Tailscale.
-      - "${CONTROL_ROOM_BIND:-127.0.0.1}:${CONTROL_ROOM_PORT:-4331}:4321"
+      # 4332 for a production install, 4331 for a source checkout's dev server,
+      # so both run side by side with no configuration.
+      - "${CONTROL_ROOM_BIND:-127.0.0.1}:${CONTROL_ROOM_PORT:-4332}:4321"
 
     volumes:
       - ./data:/workspace/data

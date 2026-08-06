@@ -16,11 +16,13 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
 
-    # http://localhost:4332 - set CONTROL_ROOM_PORT in .env if that clashes.
-    # Not Astro's usual 4321: that port would not bind on the machine this was
-    # developed on, and 4332 is already what this project uses for dev.
+    # http://localhost:4331
+    #
+    # 4331 for development, 4332 for a production install (see
+    # deploy/docker-compose.yml), so both can run side by side with no config.
+    # Not Astro's usual 4321: VS Code listens on 4321 and 4322.
     ports:
-      - "127.0.0.1:${CONTROL_ROOM_PORT:-4332}:4321"
+      - "127.0.0.1:${CONTROL_ROOM_PORT:-4331}:4321"
 
     # Optional. Tokens can equally be entered on the Settings page.
     env_file:

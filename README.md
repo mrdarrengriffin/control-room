@@ -45,7 +45,7 @@ curl -O https://raw.githubusercontent.com/mrdarrengriffin/control-room/main/depl
 docker compose up -d
 ```
 
-Open **<http://127.0.0.1:4331>** and you're in.
+Open **<http://127.0.0.1:4332>** and you're in.
 
 > [!TIP]
 > First launch pulls a large image (it bundles a full Chromium), so give it a
@@ -179,7 +179,7 @@ browser and has a one-click cache purge. It is built to stay on your machine:
 ### Running it on your network or a NAS
 
 Set `CONTROL_ROOM_BIND=0.0.0.0` in your `.env` and reach it at
-`http://that-host:4331`.
+`http://that-host:4332`.
 
 > [!WARNING]
 > **Over plain HTTP your password crosses the network in clear text.** Put it
@@ -219,7 +219,7 @@ cd control-room
 docker compose up
 ```
 
-Open **<http://localhost:4332>**. Edit files in your editor of choice; the dev
+Open **<http://localhost:4331>**. Edit files in your editor of choice; the dev
 server reloads. That's the whole setup — no Node on your machine, no browsers to
 install, no devcontainer.
 
@@ -232,8 +232,10 @@ docker compose logs -f    # watch it
 docker compose down       # stop
 ```
 
-Port 4332 taken? Put `CONTROL_ROOM_PORT=4333` in a `.env` file. (It isn't 4321,
-Astro's usual port, because VS Code listens on 4321 and 4322.)
+**Ports are fixed so nothing needs configuring:** development is **4331**, a
+production install is **4332**, so you can run both at once. Neither is Astro's
+usual 4321 because VS Code listens on 4321 and 4322. Override either with
+`CONTROL_ROOM_PORT` in a `.env` file if you must.
 
 > [!NOTE]
 > This runs the **dev server**, separate from any Control Room you're actually
