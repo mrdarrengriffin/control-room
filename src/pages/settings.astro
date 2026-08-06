@@ -47,7 +47,23 @@ const runTest = async (id: string): Promise<PanelResult<string>> => {
 
   if (id === 'plausible') {
     // Plausible has no "whoami", so the only real check is reading a site.
-    const { sites } = await loadRegistry();
+    const { sites, source } = await loadRegistry();
+
+    /*
+     * On a fresh install the registry is still the bundled example, whose
+     * domains (blog.example.org and friends) exist on nobody's Plausible.
+     * Querying one returns 401 with "Invalid API key or site ID" — Plausible
+     * uses that single message for both causes — which reads as a rejected key
+     * and sends people off regenerating a key that was fine all along.
+     */
+    if (source === 'example') {
+      return {
+        status: 'unconfigured',
+        reason:
+          'These are still the example sites. Add one of your own first — the key is checked by reading a site, so it needs a domain that exists on your Plausible instance.',
+      };
+    }
+
     const candidate = sites.find((site) => site.plausible?.domain);
     if (!candidate) {
       return {
@@ -55,11 +71,21 @@ const runTest = async (id: string): Promise<PanelResult<string>> => {
         reason: 'Add a site first — the key can only be checked by reading one.',
       };
     }
+
     const result = await plausibleSummary(candidate, '7d');
-    return result.status === 'ok'
+    if (result.status === 'ok') {
+      return {
+        status: 'ok',
+        data: `Read ${candidate.plausible?.domain} — ${result.data.visitors} visitors in 7 days`,
+      };
+    }
+
+    // Same ambiguity as above: name the domain that was actually queried, so a
+    // site the key cannot see is distinguishable from a bad key.
+    return result.status === 'error'
       ? {
-          status: 'ok',
-          data: `Read ${candidate.plausible?.domain} — ${result.data.visitors} visitors in 7 days`,
+          status: 'error',
+          reason: `Tested by reading ${candidate.plausible?.domain}. ${result.reason} — this fails the same way whether the key is wrong or the key's account cannot see that site, so check both.`,
         }
       : result;
   }

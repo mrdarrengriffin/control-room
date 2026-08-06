@@ -256,6 +256,26 @@ The dev instance picks up `.env` changes without this.
 </details>
 
 <details>
+<summary><b>Plausible says my API key is invalid, but it works elsewhere</b></summary>
+
+<br>
+
+Plausible returns the **same 401 — "Invalid API key or site ID"** whether the
+key is wrong *or* the key simply can't see the site being queried. Since the key
+is checked by reading one of your sites, the usual cause is the site, not the
+key:
+
+1. **Have you added a real site yet?** Before you do, the dashboard is showing
+   example data, and `blog.example.org` isn't on your Plausible. Control Room
+   now tells you this instead of running the doomed check.
+2. **Is `PLAUSIBLE_BASE_URL` set?** It defaults to `https://plausible.io`, so a
+   self-hosted key looks invalid until you point it at your own instance.
+3. **Can the key's account see that specific site?** Keys are per-user and only
+   read sites that user has access to.
+
+</details>
+
+<details>
 <summary><b>Hot reload stopped working</b></summary>
 
 <br>
