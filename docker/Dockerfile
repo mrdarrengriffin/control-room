@@ -84,6 +84,10 @@ COPY --from=build /workspace/dist ./dist
 COPY server ./server
 COPY package.json ./
 
+# The image is a distribution of the work, so it carries the licence with it —
+# Apache-2.0 §4(a) and §4(d).
+COPY LICENSE NOTICE /workspace/
+
 # Kept outside /workspace/data on purpose: that path is a bind-mount at runtime,
 # so anything stored there in the image is invisible. The entrypoint copies from
 # here into the mounted directory when a file is missing.
