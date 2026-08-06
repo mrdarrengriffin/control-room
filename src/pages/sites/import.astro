@@ -1,15 +1,14 @@
 ---
 import Shell from '../../layouts/Shell.astro';
 import { loadRegistry } from '../../lib/sites';
-import { exportDomains, exportJson } from '../../lib/transfer';
+import { exportDomains } from '../../lib/transfer';
 
 /**
- * Move a site list between installs.
+ * Move a site list between installs, as a plain list of domains.
  *
- * Both directions on one page on purpose: the person exporting and the person
- * importing are usually the same two people in the same conversation, and
- * splitting it across two screens would only mean explaining where the other
- * one is.
+ * Nothing but domains, on purpose. Identifiers — zone ids, Netlify site ids,
+ * repositories — are specific to whoever's accounts they came from and are of
+ * no use to anyone else's, so the receiving install rediscovers its own.
  */
 
 const params = Astro.url.searchParams;
@@ -17,7 +16,6 @@ const flash = params.get('flash');
 const flashMessage = params.get('message');
 
 const { sites } = await loadRegistry();
-const json = exportJson(sites);
 const domains = exportDomains(sites);
 ---
 
@@ -42,26 +40,24 @@ const domains = exportDomains(sites);
   <section class="card">
     <div class="card-head">
       <h2>Bulk add</h2>
-      <span class="hint">Paste a list of domains, or exported JSON.</span>
+      <span class="hint">One domain per line.</span>
     </div>
 
-    <form method="POST" action="/api/sites/import" class="stack">
+    <form method="POST" action="/api/sites/import">
       <div class="field">
-        <label for="payload">Sites to add</label>
+        <label for="payload">Domains to add</label>
         <textarea
           id="payload"
           name="payload"
           rows="10"
           spellcheck="false"
-          placeholder={'example.org\ndocs.example.org\nblog.example.org\n\n…or paste the JSON from an export.'}
+          placeholder={'example.org\ndocs.example.org\nblog.example.org'}
           required></textarea>
       </div>
 
       <p class="setting-hint">
-        One domain per line, or comma separated — full URLs are fine and get
-        reduced to the domain. Lines starting with <code>#</code> are ignored.
-        Anything beginning with <code>&#123;</code> or <code>[</code> is read as
-        JSON instead, so an export pastes in directly.
+        Newlines or commas. Full URLs are fine and get reduced to the domain,
+        and lines starting with <code>#</code> are ignored.
       </p>
 
       <div class="button-row">
@@ -75,12 +71,11 @@ const domains = exportDomains(sites);
     <p class="panel-note">
       <span aria-hidden="true">i</span>
       <span>
-        A bulk add stores exactly what you paste — it does not search your
-        connected services. For a domain list that means Plausible works
-        immediately and the rest fill in when you use
-        <strong>Look up missing details</strong> on a site, or
-        <a href="/sites/new">add a site by URL</a> instead, which discovers
-        everything up front.
+        A bulk add stores just the domain. Analytics work immediately; zones,
+        deploys and repositories fill in when you use
+        <strong>Look up missing details</strong> on a site. To find everything
+        up front, <a href="/sites/new">add a site by URL</a> — or use
+        <strong>Discover</strong> there to sweep your connected services.
       </span>
     </p>
   </section>
@@ -103,38 +98,20 @@ const domains = exportDomains(sites);
         </p>
       ) : (
         <>
+          <textarea class="export-box" rows="10" readonly spellcheck="false">{domains}</textarea>
+
           <div class="button-row">
             <a class="button" href="/api/sites/export" download>
-              Download sites.json
-            </a>
-            <a class="button" href="/api/sites/export?format=domains" download>
-              Download domain list
+              Download list
             </a>
           </div>
-
-          <details class="table-view">
-            <summary>Full export — domains, ids, repos and test pages</summary>
-            <textarea class="export-box" rows="14" readonly spellcheck="false">{json}</textarea>
-            <p class="setting-hint">
-              This is valid <code>data/sites.json</code>, so it can be pasted
-              into the box above on another install or dropped straight into its
-              data directory.
-            </p>
-          </details>
-
-          <details class="table-view">
-            <summary>Domains only — the other install discovers its own ids</summary>
-            <textarea class="export-box" rows="8" readonly spellcheck="false">{domains}</textarea>
-          </details>
 
           <p class="panel-note">
             <span aria-hidden="true">i</span>
             <span>
-              <strong>No credentials are included.</strong> An export lists
-              domains and the identifiers of the resources behind them —
-              Cloudflare zone ids, Netlify site ids, repository names. Tokens
-              live in <code>data/secrets.json</code> and never leave this
-              machine, so whoever you send this to needs their own.
+              Domains only — no tokens, and no identifiers from your accounts.
+              Whoever you send this to pastes it into their own Bulk add, and
+              their install discovers its own zones, deploys and repositories.
             </span>
           </p>
         </>

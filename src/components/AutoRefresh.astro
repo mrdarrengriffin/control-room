@@ -80,8 +80,8 @@
     try {
       const url = new URL(location.href);
       // One-shot params must not be replayed: flash messages would reappear, and
-      // sitemap/discover would re-run expensive lookups every 20 seconds.
-      for (const param of ['flash', 'message', 'sitemap', 'discover']) {
+      // sitemap/discover/scan would re-run expensive lookups every 20 seconds.
+      for (const param of ['flash', 'message', 'sitemap', 'discover', 'scan']) {
         url.searchParams.delete(param);
       }
 

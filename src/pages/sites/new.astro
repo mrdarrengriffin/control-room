@@ -4,6 +4,8 @@ import StatusPill from '../../components/StatusPill.astro';
 import type { Tone } from '../../components/StatusPill.astro';
 import { discoverSite } from '../../lib/discover';
 import type { Discovery, FindingStatus } from '../../lib/discover';
+import { SCAN_SOURCES, isScanSource, scanServices } from '../../lib/scan';
+import type { ScanResult, ScanSourceId } from '../../lib/scan';
 import { messageOf } from '../../lib/types';
 
 const params = Astro.url.searchParams;
@@ -19,6 +21,27 @@ if (rawUrl !== '') {
     discovery = await discoverSite(rawUrl);
   } catch (error) {
     discoveryError = messageOf(error);
+  }
+}
+
+/*
+ * Only on request, and only the services asked for. Cloudflare answers in half
+ * a second; GitHub paginates every repository you own and takes ten. Running
+ * all four on every visit to this page would be indefensible.
+ */
+const requested = params.getAll('source').filter(isScanSource);
+const scanning = params.has('scan');
+const chosen: ScanSourceId[] =
+  requested.length > 0 ? requested : SCAN_SOURCES.map((source) => source.id);
+
+let scan: ScanResult | undefined;
+let scanError: string | undefined;
+
+if (scanning) {
+  try {
+    scan = await scanServices(chosen);
+  } catch (error) {
+    scanError = messageOf(error);
   }
 }
 
@@ -74,7 +97,170 @@ const LABELS: Record<FindingStatus, string> = {
       </div>
       <button class="button is-primary" type="submit">Look it up</button>
     </form>
+
+    <details class="scan-panel" open={scanning}>
+      <summary>Or discover domains from your services</summary>
+
+      <form method="GET" action="/sites/new">
+        <input type="hidden" name="scan" value="1" />
+
+        <ul class="scan-picker">
+          {SCAN_SOURCES.map((source) => (
+            <li>
+              <label class="scan-item">
+                <input
+                  type="checkbox"
+                  name="source"
+                  value={source.id}
+                  checked={chosen.includes(source.id)}
+                />
+                <span class="scan-picker-text">
+                  <strong>{source.name}</strong>
+                  <span class="hint">{source.what}</span>
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+
+        <div class="button-row" style="margin-top:10px">
+          <button class="button is-primary" type="submit">Discover</button>
+          <span class="hint">
+            Only the ticked services are queried. GitHub is much the slowest,
+            since it pages through every repository you own.
+          </span>
+        </div>
+      </form>
+    </details>
   </div>
+
+  {scanError && <p class="flash is-error">{scanError}</p>}
+
+  {
+    scan && (
+      <section class="card">
+        <div class="card-head">
+          <h2>Discovered domains</h2>
+          <span class="hint">
+            {scan.candidates.length === 0
+              ? 'Nothing new found'
+              : `${scan.candidates.length} not yet added`}
+          </span>
+        </div>
+
+        <div class="chips">
+          {scan.sources.map((source) => (
+            <span class="chip">
+              {source.name}
+              {source.status === 'ok' ? (
+                <strong>{source.found}</strong>
+              ) : (
+                <em class="debug-failed">
+                  {source.status === 'unconfigured' ? 'not connected' : 'failed'}
+                </em>
+              )}
+            </span>
+          ))}
+        </div>
+
+        {
+          scan.sources
+            .filter((source) => source.detail)
+            .map((source) => (
+              <p class="setting-hint">
+                <strong>{source.name}:</strong> {source.detail}
+              </p>
+            ))
+        }
+
+        {scan.candidates.length === 0 ? (
+          <p class="empty">
+            Every domain your services reported is already here
+            {scan.alreadyAdded.length > 0
+              ? ` (${scan.alreadyAdded.length} matched)`
+              : ''}
+            .
+          </p>
+        ) : (
+          <form method="POST" action="/api/sites/import">
+            <input type="hidden" name="from" value="new" />
+            {/*
+              The same endpoint the bulk-add box posts to: a newline-joined list
+              of domains. One code path for "add several sites", however they
+              were chosen.
+            */}
+            {/* A real inventory runs to dozens of rows — 75 on the install
+                this was built against — so ticking them one at a time is not a
+                reasonable ask. Inert without JavaScript; the checkboxes still
+                work. */}
+            <div class="button-row" style="margin-bottom:8px">
+              <button class="button" type="button" data-scan-all>Select all</button>
+              <button class="button" type="button" data-scan-none>Select none</button>
+              <span class="hint">
+                {scan.candidates.length} found, most-corroborated first. Anything
+                from GitHub alone is a repository homepage, which may not be a
+                site you run.
+              </span>
+            </div>
+
+            <ul class="scan-list">
+              {scan.candidates.map((candidate) => (
+                <li>
+                  <label class="scan-item">
+                    <input
+                      type="checkbox"
+                      name="domains"
+                      value={candidate.domain}
+                      checked={candidate.sources.length > 1}
+                    />
+                    <span class="scan-domain">{candidate.domain}</span>
+                    <span class="scan-sources">
+                      {candidate.sources.join(', ')}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+
+            <div class="button-row">
+              <button class="button is-primary" type="submit">
+                Add selected
+              </button>
+              <span class="hint">
+                Ticked by default where more than one service agrees. Each one
+                is added by domain; run <strong>Look up missing details</strong>
+                afterwards to fill in zones, deploys and repositories.
+              </span>
+            </div>
+          </form>
+        )}
+
+        {scan.alreadyAdded.length > 0 && (
+          <details class="table-view">
+            <summary>
+              {scan.alreadyAdded.length} already added
+            </summary>
+            <p class="setting-hint">{scan.alreadyAdded.join(', ')}</p>
+          </details>
+        )}
+      </section>
+    )
+  }
+
+  <script>
+    // Bulk tick for the discovered-domains list.
+    const boxes = () =>
+      document.querySelectorAll<HTMLInputElement>('.scan-list input[type=checkbox]');
+    const setAll = (checked: boolean) => {
+      for (const box of boxes()) box.checked = checked;
+    };
+    document
+      .querySelector('[data-scan-all]')
+      ?.addEventListener('click', () => setAll(true));
+    document
+      .querySelector('[data-scan-none]')
+      ?.addEventListener('click', () => setAll(false));
+  </script>
 
   {
     discoveryError && (

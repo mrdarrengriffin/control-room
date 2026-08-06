@@ -566,9 +566,117 @@ h3 {
   margin-bottom: 12px;
 }
 
+/* Secondary explanatory text. Was only ever defined inside .card-head, so the
+   same class elsewhere rendered at full body size and weight. */
+.hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+  /* Beside a button in a .button-row: take the remaining width and wrap, rather
+     than forcing the row wider than its card. */
+  min-width: 0;
+}
+
 .card-head .hint {
   color: var(--ink-muted);
   font-size: 12px;
+}
+
+.button-row .hint {
+  flex: 1 1 16rem;
+}
+
+/* --- Discovered domains --------------------------------------------------- */
+
+.scan-panel {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.scan-panel > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.scan-panel[open] > summary {
+  margin-bottom: 10px;
+}
+
+.scan-picker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  /* Two up where there is room; the descriptions are a line or two each. */
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+}
+
+.scan-picker .scan-item {
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.scan-picker input[type='checkbox'] {
+  margin-top: 2px;
+}
+
+.scan-picker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.scan-picker-text strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.scan-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* Long inventories are normal — 24 Cloudflare zones on the install this was
+     built against — so the list scrolls rather than burying the Add button. */
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.scan-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.scan-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.scan-item:hover {
+  background: var(--surface-sunken);
+}
+
+.scan-domain {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Which services vouched for this domain. Quiet: it is corroboration, not the
+   thing being chosen. */
+.scan-sources {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-muted);
 }
 
 /* Read-only export text: monospace so a long domain list stays scannable, and

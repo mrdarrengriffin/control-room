@@ -421,3 +421,40 @@ export const findSiteForHost = async (
     matchedBy: info.custom_domain ?? info.name,
   });
 };
+
+/**
+ * Every site the token can enumerate, as domains.
+ *
+ * Worth knowing: this endpoint returns an empty array for some tokens even
+ * though the sites exist and are readable individually — they live under teams
+ * the token cannot list. An empty result therefore means "none visible", not
+ * "none exist", and the UI says so rather than implying Netlify is unused.
+ */
+export const listDomains = async (): Promise<PanelResult<string[]>> => {
+  const token = env.netlifyToken();
+  if (!token) return unconfigured('NETLIFY_AUTH_TOKEN is not set');
+
+  try {
+    const sites = await cached('netlify:all-sites', TTL.zones, () =>
+      fetchJson<NetlifySite[]>(`${API}/sites?per_page=100`, {
+        headers: bearer(token),
+        timeoutMs: 20_000,
+      }),
+    );
+
+    const domains = new Set<string>();
+    for (const site of sites ?? []) {
+      if (site.custom_domain) domains.add(site.custom_domain.toLowerCase());
+      for (const alias of site.domain_aliases ?? []) {
+        if (alias) domains.add(alias.toLowerCase());
+      }
+    }
+
+    return ok([...domains].sort());
+  } catch (error) {
+    if (error instanceof HttpError && error.isAuthFailure) {
+      return failed('Netlify rejected the token (NETLIFY_AUTH_TOKEN).');
+    }
+    return failed(messageOf(error));
+  }
+};

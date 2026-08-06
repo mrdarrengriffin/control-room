@@ -595,3 +595,57 @@ export const summaryForSites = async (
   Promise.all(
     sites.map(async (site) => ({ site, result: await summary(site, dateRange) })),
   );
+
+/**
+ * Every site on the default instance, from Plausible's Sites API.
+ *
+ * Separate from the Stats API and separately authorised: a stats-only key gets
+ * 401 here even though it reads analytics fine. That is a permission gap rather
+ * than a broken key, and the message says which scope is missing.
+ */
+export const listDomains = async (): Promise<PanelResult<string[]>> => {
+  const apiKey = env.plausibleKey();
+  if (!apiKey) return unconfigured('PLAUSIBLE_API_KEY is not set');
+
+  const baseUrl = env.plausibleBaseUrl();
+
+  try {
+    const response = await cached(`plausible:sites:${baseUrl}`, TTL.zones, () =>
+      fetchJson<{ sites?: Array<{ domain?: string }> }>(
+        `${baseUrl}/api/v1/sites?limit=1000`,
+        {
+          headers: bearer(apiKey),
+          timeoutMs: 20_000,
+          debug: { provider: 'plausible', context: { instance: baseUrl } },
+        },
+      ),
+    );
+
+    const domains = (response?.sites ?? [])
+      .map((site) => site.domain?.toLowerCase())
+      .filter((domain): domain is string => Boolean(domain));
+
+    return ok([...new Set(domains)].sort());
+  } catch (error) {
+    if (error instanceof HttpError) {
+      if (error.isAuthFailure) {
+        return failed(
+          `${baseUrl} rejected the key for listing sites. The Sites API needs a key with "sites:read" — a stats-only key reads analytics fine but cannot enumerate.`,
+        );
+      }
+      if (error.status === 404) {
+        /*
+         * Self-hosted Community Edition does not expose the Sites API, and
+         * answers with its marketing page rather than a JSON 404. Reporting the
+         * body verbatim dumped a screenful of HTML into the UI.
+         */
+        return failed(
+          `${baseUrl} has no Sites API at /api/v1/sites, so its sites cannot be listed. Analytics are unaffected.`,
+        );
+      }
+      // Any other HTTP failure: status only. The body may be an HTML page.
+      return failed(`${baseUrl} returned ${error.status} when listing sites.`);
+    }
+    return failed(messageOf(error));
+  }
+};

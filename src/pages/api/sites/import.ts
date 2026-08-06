@@ -12,11 +12,21 @@ import { messageOf } from '../../../lib/types';
  * you already trust.
  */
 
-const back = (status: 'ok' | 'error', message: string) =>
+/*
+ * Both callers get sent back where they came from. Whitelisted rather than
+ * echoed: a redirect target taken from a form field is an open redirect unless
+ * it can only ever be one of these.
+ */
+const RETURN_TO: Record<string, string> = {
+  import: '/sites/import',
+  new: '/sites/new',
+};
+
+const back = (status: 'ok' | 'error', message: string, from = 'import') =>
   new Response(null, {
     status: 303,
     headers: {
-      Location: `/sites/import?flash=${status}&message=${encodeURIComponent(message)}`,
+      Location: `${RETURN_TO[from] ?? RETURN_TO.import}?flash=${status}&message=${encodeURIComponent(message)}`,
     },
   });
 
@@ -27,15 +37,33 @@ const list = (items: string[], max = 6): string => {
 };
 
 export const POST: APIRoute = async ({ request }) => {
+  // Outside the try: the catch below redirects too, and would otherwise be
+  // referring to a binding that never came into scope.
+  let from = 'import';
+
   try {
     const form = await request.formData();
-    const raw = String(form.get('payload') ?? '');
+    from = String(form.get('from') ?? 'import');
+
+    /*
+     * Two callers, one endpoint: the textarea on this page posts `payload`, and
+     * the Discover checkboxes on /sites/new post one `domains` value each.
+     * Joining them into the same newline-separated text keeps a single path for
+     * "add several sites", however they were chosen.
+     */
+    const checked = form
+      .getAll('domains')
+      .map((value) => String(value).trim())
+      .filter((value) => value !== '');
+    const raw = [String(form.get('payload') ?? ''), ...checked]
+      .filter((part) => part.trim() !== '')
+      .join('\n');
+
+    if (raw.trim() === '') {
+      return back('error', 'Nothing to add — paste a list or tick a domain.', from);
+    }
 
     const parsed = parseImport(raw);
-
-    if (parsed.format === 'empty') {
-      return back('error', 'Nothing to import — paste a list or some JSON.');
-    }
 
     if (parsed.sites.length === 0) {
       return back(
@@ -43,6 +71,7 @@ export const POST: APIRoute = async ({ request }) => {
         parsed.problems.length > 0
           ? `Nothing could be read. ${list(parsed.problems, 3)}`
           : 'Nothing could be read from that.',
+        from,
       );
     }
 
@@ -71,8 +100,9 @@ export const POST: APIRoute = async ({ request }) => {
     return back(
       added.length > 0 ? 'ok' : 'error',
       parts.join(' ') || 'Nothing to do.',
+      from,
     );
   } catch (error) {
-    return back('error', messageOf(error));
+    return back('error', messageOf(error), from);
   }
 };
