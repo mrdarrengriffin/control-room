@@ -18,7 +18,12 @@ export interface Site {
     enabled?: boolean;
   };
   plausible?: {
-    domain: string;
+    /**
+     * The site id in Plausible. Optional: when absent the provider resolves it
+     * from the site URL, trying the hostname and its www counterpart, because
+     * which spelling an install uses cannot be known from here.
+     */
+    domain?: string;
     /**
      * Override the Plausible instance for this site. Needed when sites are
      * split across more than one Plausible install, which a single global

@@ -197,8 +197,33 @@ const pick = (
   return typeof value === 'number' ? value : undefined;
 };
 
+/**
+ * A hostname and its www counterpart.
+ *
+ * Services disagree about which one they know a site by: this Plausible install
+ * knows `openhomefoundation.org` while the site itself is served from
+ * `www.openhomefoundation.org`, and `handbook.openhomefoundation.org` has no
+ * `www` at all.
+ */
+export const hostCandidates = (host: string): string[] => [
+  host,
+  host.startsWith('www.') ? host.slice(4) : `www.${host}`,
+];
+
+const hostOf = (url: string): string | undefined => {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+};
+
 interface Ready {
-  domain: string;
+  slug: string;
+  /** Site ids to try, in order. */
+  candidates: string[];
+  /** Did the registry name the domain, or did we derive it from the site URL? */
+  declared: boolean;
   instance: Instance;
 }
 
@@ -209,8 +234,16 @@ const preflight = (site: Site): PanelResult<Ready> => {
     return unconfigured(`${keyEnvName ?? 'PLAUSIBLE_API_KEY'} is not set in .env`);
   }
 
-  const domain = site.plausible?.domain;
-  if (!domain) {
+  /*
+   * A missing `plausible.domain` is not a dead end. A Plausible site id *is* a
+   * domain and we already know the site's, so deriving it means a site added
+   * before the Plausible key was configured still reports analytics instead of
+   * staying silently blank until someone thinks to re-run discovery — which is
+   * exactly how this went wrong in practice.
+   */
+  const declared = site.plausible?.domain;
+  const host = declared ?? hostOf(site.url);
+  if (!host) {
     return unconfigured(`No plausible.domain for "${site.slug}"`);
   }
 
@@ -219,18 +252,131 @@ const preflight = (site: Site): PanelResult<Ready> => {
     '',
   );
 
-  return ok({ domain, instance: { baseUrl, apiKey } });
+  return ok({
+    slug: site.slug,
+    candidates: hostCandidates(host),
+    declared: declared !== undefined,
+    instance: { baseUrl, apiKey },
+  });
 };
 
-const translate = (error: unknown, domain: string): PanelResult<never> => {
+type Resolution =
+  | { kind: 'resolved'; siteId: string }
+  /** Every candidate came back 401/404 — bad key, or no access to the site. */
+  | { kind: 'rejected' }
+  | { kind: 'error'; message: string };
+
+/** A rejection is held briefly only, so fixing the key or domain recovers fast. */
+const REJECTED_TTL_MS = 15_000;
+
+const rejectionReason = ({ candidates }: Ready): string =>
+  `Plausible rejected ${candidates
+    .map((candidate) => `"${candidate}"`)
+    .join(' and ')} — either the API key is wrong, or its account cannot see this site.`;
+
+/**
+ * Which site id this Plausible install actually knows a host by.
+ *
+ * Worth a dedicated call, because guessing the spelling wrong is
+ * indistinguishable from a credentials problem: Plausible answers an unknown
+ * site id with `401 Invalid API key or site ID` — one message covering both
+ * causes. That ambiguity has now cost real debugging time twice. Once it
+ * reported a **valid key as invalid** because the dashboard was asking about a
+ * domain nobody owned (see "No example data, ever" in docs/ARCHITECTURE.md),
+ * and once a site whose URL carried `www.` showed no analytics at all while the
+ * key, the instance and the account were all perfect.
+ *
+ * The lesson from the first time was that a guard at one call site leaves every
+ * other call site lying, so this resolves the spelling in the provider rather
+ * than trusting whoever called it — the same thing the Netlify provider already
+ * does with its own `www` toggling. Cached for a day: which spelling an install
+ * uses effectively never changes.
+ */
+const resolveSiteId = async (ready: Ready): Promise<Resolution> => {
+  const { candidates, instance } = ready;
+
+  return cachedBy<Resolution>(
+    `plausible:site-id:${instance.baseUrl}:${candidates.join(',')}`,
+    async () => {
+      for (const siteId of candidates) {
+        try {
+          // The cheapest query that still proves access: one metric, one day.
+          await query(
+            { site_id: siteId, metrics: ['visitors'], dateRange: 'day' },
+            instance,
+          );
+          return { kind: 'resolved', siteId };
+        } catch (error) {
+          const rejected =
+            error instanceof HttpError &&
+            (error.isAuthFailure || error.status === 404);
+          /*
+           * Only a rejection means "try the other spelling". A timeout or a 500
+           * says nothing about the site id, and treating it as one would report
+           * a missing site while the instance is merely down.
+           */
+          if (!rejected) return { kind: 'error', message: messageOf(error) };
+        }
+      }
+      return { kind: 'rejected' };
+    },
+    (resolution) => {
+      if (resolution.kind === 'resolved') return TTL.resolution;
+      if (resolution.kind === 'rejected') return REJECTED_TTL_MS;
+      return undefined;
+    },
+  );
+};
+
+/**
+ * The site id to query, for discovery.
+ *
+ * `unconfigured` here means only that the key is missing, so discovery can tell
+ * "no Plausible set up at all" from "this instance does not have that site".
+ */
+export const findSiteId = async (site: Site): Promise<PanelResult<string>> => {
+  const ready = preflight(site);
+  if (ready.status !== 'ok') return ready;
+
+  const resolution = await resolveSiteId(ready.data);
+  if (resolution.kind === 'resolved') return ok(resolution.siteId);
+  if (resolution.kind === 'error') return failed(resolution.message);
+  return failed(rejectionReason(ready.data));
+};
+
+/**
+ * The site id to query, for a panel.
+ *
+ * One difference from `findSiteId`: when nobody named a domain *and* Plausible
+ * does not recognise the site either, that is a site without analytics rather
+ * than a fault, so the panel stays quiet instead of showing every site in the
+ * registry an error it cannot act on.
+ */
+const siteIdForPanel = async (ready: Ready): Promise<PanelResult<string>> => {
+  const resolution = await resolveSiteId(ready);
+
+  if (resolution.kind === 'resolved') return ok(resolution.siteId);
+  if (resolution.kind === 'error') return failed(resolution.message);
+  if (ready.declared) return failed(rejectionReason(ready));
+
+  return unconfigured(
+    `Plausible has no site for ${ready.candidates.join(' or ')}. Set plausible.domain for "${ready.slug}" if it is known there by another name.`,
+  );
+};
+
+const translate = (error: unknown, siteId: string): PanelResult<never> => {
   if (error instanceof HttpError) {
     if (error.isAuthFailure) {
+      /*
+       * The spelling has already been resolved by this point, so this is no
+       * longer the www/bare trap — it really is the key or the account.
+       */
       return failed(
-        'Plausible rejected the API key, or it has no access to this site.',
+        `Plausible rejected the API key for "${siteId}", or it has no access to that site.`,
       );
     }
     if (error.status === 404) {
-      return failed(`Plausible has no site "${domain}".`);
+      return failed(`Plausible has no site "${siteId}".`);
     }
     if (error.status === 400) {
       return failed(`Plausible rejected the query: ${error.message}`);
@@ -266,11 +412,15 @@ export const summary = async (
 ): Promise<PanelResult<Summary>> => {
   const ready = preflight(site);
   if (ready.status !== 'ok') return ready;
-  const { domain, instance } = ready.data;
+
+  const resolved = await siteIdForPanel(ready.data);
+  if (resolved.status !== 'ok') return resolved;
+  const siteId = resolved.data;
+  const { instance } = ready.data;
 
   try {
     const response = await query(
-      { site_id: domain, metrics: SUMMARY_METRICS, dateRange },
+      { site_id: siteId, metrics: SUMMARY_METRICS, dateRange },
       instance,
     );
 
@@ -284,7 +434,7 @@ export const summary = async (
       viewsPerVisit: pick(row, SUMMARY_METRICS, 'views_per_visit'),
     });
   } catch (error) {
-    return translate(error, domain);
+    return translate(error, siteId);
   }
 };
 
@@ -315,12 +465,16 @@ export const timeseries = async (
 ): Promise<PanelResult<TimeseriesPoint[]>> => {
   const ready = preflight(site);
   if (ready.status !== 'ok') return ready;
-  const { domain, instance } = ready.data;
+
+  const resolved = await siteIdForPanel(ready.data);
+  if (resolved.status !== 'ok') return resolved;
+  const siteId = resolved.data;
+  const { instance } = ready.data;
 
   try {
     const response = await query(
       {
-        site_id: domain,
+        site_id: siteId,
         metrics: SERIES_METRICS,
         dateRange,
         dimensions: [bucketFor(dateRange)],
@@ -336,7 +490,7 @@ export const timeseries = async (
       })),
     );
   } catch (error) {
-    return translate(error, domain);
+    return translate(error, siteId);
   }
 };
 
@@ -367,12 +521,16 @@ export const breakdown = async (
 ): Promise<PanelResult<BreakdownRow[]>> => {
   const ready = preflight(site);
   if (ready.status !== 'ok') return ready;
-  const { domain, instance } = ready.data;
+
+  const resolved = await siteIdForPanel(ready.data);
+  if (resolved.status !== 'ok') return resolved;
+  const siteId = resolved.data;
+  const { instance } = ready.data;
 
   try {
     const response = await query(
       {
-        site_id: domain,
+        site_id: siteId,
         metrics: SERIES_METRICS,
         dateRange,
         dimensions: [BREAKDOWNS[key].dimension],
@@ -391,7 +549,7 @@ export const breakdown = async (
       })),
     );
   } catch (error) {
-    return translate(error, domain);
+    return translate(error, siteId);
   }
 };
 
@@ -417,12 +575,16 @@ export const goals = async (
 ): Promise<PanelResult<GoalRow[]>> => {
   const ready = preflight(site);
   if (ready.status !== 'ok') return ready;
-  const { domain, instance } = ready.data;
+
+  const resolved = await siteIdForPanel(ready.data);
+  if (resolved.status !== 'ok') return resolved;
+  const siteId = resolved.data;
+  const { instance } = ready.data;
 
   try {
     const response = await query(
       {
-        site_id: domain,
+        site_id: siteId,
         metrics: GOAL_METRICS,
         dateRange,
         dimensions: ['event:goal'],
@@ -440,13 +602,19 @@ export const goals = async (
       })),
     );
   } catch (error) {
-    return translate(error, domain);
+    return translate(error, siteId);
   }
 };
 
 // --- Composed views --------------------------------------------------------
 
 export interface SiteAnalytics {
+  /**
+   * The site id these figures were actually read from, which is not necessarily
+   * the one in the registry — see `resolveSiteId()`. Labelling the panel with the
+   * registry's value would be a small lie in exactly the case that is confusing.
+   */
+  siteId?: string;
   summary: PanelResult<Summary>;
   timeseries: PanelResult<TimeseriesPoint[]>;
   pages: PanelResult<BreakdownRow[]>;
@@ -462,18 +630,28 @@ export const siteAnalytics = async (
   site: Site,
   dateRange: DateRange = '7d',
 ): Promise<SiteAnalytics> => {
-  const [summaryResult, series, pages, sources, countries, devices, goalRows] =
-    await Promise.all([
-      summary(site, dateRange),
-      timeseries(site, dateRange),
-      breakdown(site, 'pages', dateRange),
-      breakdown(site, 'sources', dateRange),
-      breakdown(site, 'countries', dateRange, 12),
-      breakdown(site, 'devices', dateRange, 5),
-      goals(site, dateRange),
-    ]);
+  const [
+    resolved,
+    summaryResult,
+    series,
+    pages,
+    sources,
+    countries,
+    devices,
+    goalRows,
+  ] = await Promise.all([
+    findSiteId(site),
+    summary(site, dateRange),
+    timeseries(site, dateRange),
+    breakdown(site, 'pages', dateRange),
+    breakdown(site, 'sources', dateRange),
+    breakdown(site, 'countries', dateRange, 12),
+    breakdown(site, 'devices', dateRange, 5),
+    goals(site, dateRange),
+  ]);
 
   return {
+    siteId: resolved.status === 'ok' ? resolved.data : undefined,
     summary: summaryResult,
     timeseries: series,
     pages,
@@ -507,7 +685,11 @@ export const realtimeVisitors = async (
   const ready = preflight(site);
   if (ready.status !== 'ok') return undefined;
 
-  const { domain, instance } = ready.data;
+  const resolved = await siteIdForPanel(ready.data);
+  if (resolved.status !== 'ok') return undefined;
+
+  const domain = resolved.data;
+  const { instance } = ready.data;
 
   return cachedBy(
     `plausible:realtime:${instance.baseUrl}:${domain}`,

@@ -72,13 +72,16 @@ export const POST: APIRoute = async ({ request }) => {
       description: field(form, 'description'),
       cloudflare: zoneId ? { zoneId } : undefined,
       netlify: netlifySiteId ? { siteId: netlifySiteId } : undefined,
-      plausible: plausibleDomain
-        ? {
-            domain: plausibleDomain,
-            baseUrl: plausibleBaseUrl,
-            keyEnv: plausibleKeyEnv,
-          }
-        : undefined,
+      // A blank domain is fine — the provider resolves it from the URL — but an
+      // instance or key variable on its own still has to be kept.
+      plausible:
+        plausibleDomain || plausibleBaseUrl || plausibleKeyEnv
+          ? {
+              domain: plausibleDomain,
+              baseUrl: plausibleBaseUrl,
+              keyEnv: plausibleKeyEnv,
+            }
+          : undefined,
       github: githubRepo ? { repo: githubRepo } : undefined,
       testPages: testPages.length > 0 ? testPages : ['/'],
       interactivePages: interactivePages.length > 0 ? interactivePages : undefined,

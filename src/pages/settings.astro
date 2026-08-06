@@ -5,7 +5,10 @@ import type { Tone } from '../components/StatusPill.astro';
 import { verifyToken as verifyCloudflare } from '../lib/providers/cloudflare';
 import { whoami as verifyGithub } from '../lib/providers/github';
 import { verifyToken as verifyNetlify } from '../lib/providers/netlify';
-import { summary as plausibleSummary } from '../lib/providers/plausible';
+import {
+  findSiteId,
+  summary as plausibleSummary,
+} from '../lib/providers/plausible';
 import { serviceStatuses } from '../lib/secrets';
 import { loadRegistry } from '../lib/sites';
 import type { ConfigSource } from '../lib/env';
@@ -48,7 +51,9 @@ const runTest = async (id: string): Promise<PanelResult<string>> => {
   if (id === 'plausible') {
     // Plausible has no "whoami", so the only real check is reading a site.
     const { sites } = await loadRegistry();
-    const candidate = sites.find((site) => site.plausible?.domain);
+    // Any site will do: the provider resolves the site id from the URL when the
+    // registry doesn't name one, so a site without a plausible block is testable.
+    const candidate = sites[0];
     if (!candidate) {
       return {
         status: 'unconfigured',
@@ -56,21 +61,21 @@ const runTest = async (id: string): Promise<PanelResult<string>> => {
       };
     }
 
+    const resolved = await findSiteId(candidate);
+    if (resolved.status !== 'ok') return resolved;
+
     const result = await plausibleSummary(candidate, '7d');
     if (result.status === 'ok') {
       return {
         status: 'ok',
-        data: `Read ${candidate.plausible?.domain} — ${result.data.visitors} visitors in 7 days`,
+        data: `Read ${resolved.data} — ${result.data.visitors} visitors in 7 days`,
       };
     }
 
-    // Same ambiguity as above: name the domain that was actually queried, so a
-    // site the key cannot see is distinguishable from a bad key.
+    // Name the site id that was actually read. The www/bare spelling has already
+    // been resolved by this point, so it is no longer a candidate explanation.
     return result.status === 'error'
-      ? {
-          status: 'error',
-          reason: `Tested by reading ${candidate.plausible?.domain}. ${result.reason} — this fails the same way whether the key is wrong or the key's account cannot see that site, so check both.`,
-        }
+      ? { status: 'error', reason: `Tested by reading ${resolved.data}. ${result.reason}` }
       : result;
   }
 

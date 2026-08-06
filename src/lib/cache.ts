@@ -23,6 +23,17 @@ interface Entry {
 
 const store = new Map<string, Entry>();
 
+/**
+ * Loads in flight for a *cold* key, so concurrent callers share one request.
+ *
+ * The stale path already had this via `entry.refreshing`; the cold path did not,
+ * and a page that fans out is exactly where it matters. A site page asks for
+ * seven Plausible panels plus a site-id resolution at once — all eight wanting
+ * the same resolution — and without this each one issued its own request, so the
+ * first uncached render cost eight round trips to learn one fact.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
+
 /** A failing upstream is held briefly so it isn't retried on every render. */
 const ERROR_TTL_MS = 15_000;
 
@@ -35,6 +46,11 @@ const MAX_ENTRIES = 500;
  */
 export const invalidateAll = (): void => {
   store.clear();
+  /*
+   * In-flight loads are dropped too, not awaited: one started before a token
+   * changed would otherwise land afterwards and be cached as current.
+   */
+  inFlight.clear();
 };
 
 /**
@@ -76,15 +92,29 @@ export const cachedBy = async <T>(
     return entry.value as T;
   }
 
-  const value = await load();
-  const ttl = ttlOf(value);
+  const existing = inFlight.get(key);
+  if (existing) return existing as Promise<T>;
 
-  if (ttl !== undefined) {
-    if (store.size >= MAX_ENTRIES) store.clear();
-    store.set(key, { value, freshUntil: Date.now() + ttl, refreshing: false });
-  }
+  const pending = load()
+    .then((value) => {
+      const ttl = ttlOf(value);
+      if (ttl !== undefined) {
+        if (store.size >= MAX_ENTRIES) store.clear();
+        store.set(key, {
+          value,
+          freshUntil: Date.now() + ttl,
+          refreshing: false,
+        });
+      }
+      return value;
+    })
+    .finally(() => {
+      // Only if it is still ours: invalidateAll() may have cleared the map.
+      if (inFlight.get(key) === pending) inFlight.delete(key);
+    });
 
-  return value;
+  inFlight.set(key, pending);
+  return pending;
 };
 
 /** Fixed TTL for everything. */
