@@ -16,9 +16,11 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
 
-    # http://localhost:4321 - set CONTROL_ROOM_PORT in .env if that clashes.
+    # http://localhost:4332 - set CONTROL_ROOM_PORT in .env if that clashes.
+    # Not Astro's usual 4321: that port would not bind on the machine this was
+    # developed on, and 4332 is already what this project uses for dev.
     ports:
-      - "127.0.0.1:${CONTROL_ROOM_PORT:-4321}:4321"
+      - "127.0.0.1:${CONTROL_ROOM_PORT:-4332}:4321"
 
     # Optional. Tokens can equally be entered on the Settings page.
     env_file:

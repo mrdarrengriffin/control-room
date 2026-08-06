@@ -219,7 +219,7 @@ cd control-room
 docker compose up
 ```
 
-Open **<http://localhost:4321>**. Edit files in your editor of choice; the dev
+Open **<http://localhost:4332>**. Edit files in your editor of choice; the dev
 server reloads. That's the whole setup — no Node on your machine, no browsers to
 install, no devcontainer.
 
@@ -232,7 +232,8 @@ docker compose logs -f    # watch it
 docker compose down       # stop
 ```
 
-Port 4321 taken? Put `CONTROL_ROOM_PORT=4322` in a `.env` file.
+Port 4332 taken? Put `CONTROL_ROOM_PORT=4333` in a `.env` file. (It isn't 4321,
+Astro's usual port, because VS Code listens on 4321 and 4322.)
 
 > [!NOTE]
 > This runs the **dev server**, separate from any Control Room you're actually
