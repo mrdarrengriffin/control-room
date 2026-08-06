@@ -59,12 +59,23 @@ const nestedString = (
   return isRecord(nested) ? optionalString(nested, field) : undefined;
 };
 
+const nestedBoolean = (
+  container: Record<string, unknown>,
+  key: string,
+  field: string,
+): boolean | undefined => {
+  const nested = container[key];
+  if (!isRecord(nested)) return undefined;
+  const value = nested[field];
+  return typeof value === 'boolean' ? value : undefined;
+};
+
 /**
  * Parse one entry, collecting problems rather than throwing. A single malformed
  * site shouldn't take down the whole dashboard, so bad entries are reported and
  * skipped.
  */
-const parseSite = (
+export const parseSite = (
   raw: unknown,
   index: number,
   problems: string[],
@@ -103,6 +114,12 @@ const parseSite = (
 
   const zoneId = nestedString(raw, 'cloudflare', 'zoneId');
   const netlifySiteId = nestedString(raw, 'netlify', 'siteId');
+  /*
+   * Read as well as written. Unticking "Deployed on Netlify" stores
+   * netlify.enabled: false, but this parser used to drop it, so the flag never
+   * survived a reload — the panel came back and the tickbox re-ticked itself.
+   */
+  const netlifyEnabled = nestedBoolean(raw, 'netlify', 'enabled');
   const githubRepo = nestedString(raw, 'github', 'repo');
   const plausibleDomain =
     nestedString(raw, 'plausible', 'domain') ?? parsedUrl.hostname;
@@ -122,7 +139,10 @@ const parseSite = (
     description: optionalString(raw, 'description'),
     tags: optionalStringArray(raw, 'tags'),
     cloudflare: zoneId ? { zoneId } : undefined,
-    netlify: netlifySiteId ? { siteId: netlifySiteId } : undefined,
+    netlify:
+      netlifySiteId || netlifyEnabled !== undefined
+        ? { siteId: netlifySiteId, enabled: netlifyEnabled }
+        : undefined,
     plausible: {
       domain: plausibleDomain,
       baseUrl: plausibleBaseUrl,
@@ -146,7 +166,7 @@ export const slugFromDomain = (domain: string): string =>
  * Expand a bare domain into a full site. Everything is derived, so a Plausible
  * site list can be pasted in wholesale and refined later.
  */
-const siteFromDomain = (
+export const siteFromDomain = (
   raw: unknown,
   problems: string[],
 ): Site | undefined => {
@@ -286,6 +306,57 @@ export const appendSite = async (
   entries.push(compact(site));
   await writeJsonFile(file, { ...existing, sites: entries });
   return { ok: true };
+};
+
+export interface BulkAddResult {
+  added: string[];
+  skipped: string[];
+}
+
+/**
+ * Append many sites in one read-modify-write.
+ *
+ * Calling appendSite in a loop would reread and rewrite the file per site,
+ * bumping its mtime each time and invalidating the registry cache repeatedly.
+ * A slug that already exists is skipped rather than failing the batch: pasting
+ * a list that overlaps with what you already have is the normal case, not an
+ * error.
+ */
+export const appendSites = async (sites: Site[]): Promise<BulkAddResult> => {
+  const file = path.join(dataRoot(), 'sites.json');
+  const existing = (await readJsonFile<Record<string, unknown>>(file)) ?? {};
+  const entries = Array.isArray(existing.sites) ? [...existing.sites] : [];
+
+  // Shorthand domains count as taken too, or a bulk add would create a second
+  // entry for a domain already listed there.
+  const taken = new Set<string>();
+  for (const entry of entries) {
+    if (isRecord(entry) && typeof entry.slug === 'string') taken.add(entry.slug);
+  }
+  if (Array.isArray(existing.domains)) {
+    for (const domain of existing.domains) {
+      if (typeof domain === 'string') taken.add(slugFromDomain(domain));
+    }
+  }
+
+  const added: string[] = [];
+  const skipped: string[] = [];
+
+  for (const site of sites) {
+    if (taken.has(site.slug)) {
+      skipped.push(site.slug);
+      continue;
+    }
+    taken.add(site.slug);
+    entries.push(compact(site));
+    added.push(site.slug);
+  }
+
+  if (added.length > 0) {
+    await writeJsonFile(file, { ...existing, sites: entries });
+  }
+
+  return { added, skipped };
 };
 
 /** Set a key, or remove it entirely when the value is empty. */

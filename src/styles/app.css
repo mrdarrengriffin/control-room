@@ -571,6 +571,16 @@ h3 {
   font-size: 12px;
 }
 
+/* Read-only export text: monospace so a long domain list stays scannable, and
+   it never grows the page — the box scrolls instead. */
+.export-box {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 /* --- Debug page ----------------------------------------------------------- */
 
 .nowrap {
