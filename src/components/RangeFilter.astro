@@ -1,0 +1,32 @@
+---
+import { DATE_RANGE_LABELS } from '../lib/providers/plausible';
+import type { DateRange } from '../lib/providers/plausible';
+
+interface Props {
+  current: DateRange;
+}
+
+const { current } = Astro.props;
+
+// A curated subset — the full ten presets make the row noisy.
+const SHOWN: DateRange[] = ['day', '7d', '28d', '6mo', '12mo', 'all'];
+
+/** Preserve every other query param; drop the one-shot flash values. */
+const hrefFor = (range: DateRange) => {
+  const next = new URL(Astro.url);
+  next.searchParams.set('range', range);
+  next.searchParams.delete('flash');
+  next.searchParams.delete('message');
+  return `${next.pathname}${next.search}`;
+};
+---
+
+<div class="range-list" role="group" aria-label="Date range">
+  {
+    SHOWN.map((range) => (
+      <a href={hrefFor(range)} aria-current={range === current ? 'true' : undefined}>
+        {DATE_RANGE_LABELS[range]}
+      </a>
+    ))
+  }
+</div>

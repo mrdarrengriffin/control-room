@@ -1,0 +1,49 @@
+# Hot-reload instance, also used as the devcontainer. Runs on a different port
+# to the prod one so the dashboard you use stays up while you edit it.
+name: control-room-dev
+
+services:
+  control-room-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: dev
+    image: control-room:dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      GH_TOKEN: ${GITHUB_TOKEN:-}
+      CONTROL_ROOM_DATA_DIR: /workspace/data
+    ports:
+      - "127.0.0.1:${CONTROL_ROOM_DEV_PORT:-4332}:4321"
+    volumes:
+      - .:/workspace
+      # Keep node_modules off the Windows bind mount: it is dramatically faster,
+      # and it stops host and container from fighting over native builds.
+      - node_modules:/workspace/node_modules
+    # Chromium crashes on Docker's default 64MB /dev/shm.
+    shm_size: "1gb"
+    stdin_open: true
+    tty: true
+    # The named volume above starts empty, so install on first boot (and after
+    # package.json changes). Inline rather than a script file to avoid CRLF
+    # line-ending problems on a Windows checkout.
+    # Astro 7 records the dev server's PID in .astro/dev.json, which lives in the
+    # bind mount and so outlives the container. A fresh container has no dev
+    # server running, so any lock here is stale and safe to delete.
+    #
+    # Do NOT "fix" this with `astro dev --force` instead: --force SIGTERMs the
+    # PID named in the lock, and in a fresh container's PID namespace that low
+    # PID has been reassigned to the new node process — astro kills itself and
+    # the container exits 143.
+    command: >
+      bash -c "rm -f .astro/dev.json;
+               if [ ! -x node_modules/.bin/astro ] || [ package.json -nt node_modules/.package-lock.json ]; then
+                 echo '[control-room] installing dependencies...';
+                 npm install --no-audit --no-fund;
+               fi;
+               exec npm run dev -- --host 0.0.0.0"
+
+volumes:
+  node_modules:

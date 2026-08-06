@@ -1,0 +1,27 @@
+---
+interface Props {
+  runId: string;
+  label: string;
+  status: string;
+}
+
+const { runId, label, status } = Astro.props;
+---
+
+<div class="card" id="live-run" data-run-id={runId}>
+  <div class="card-head">
+    <h2>Live run</h2>
+    <span class="hint" data-live-status>{status}…</span>
+  </div>
+
+  <p class="live-label">{label}</p>
+
+  <div class="live-body">
+    <!-- Hidden until the first screencast frame arrives; a run started without
+         "watch live" never shows a view, only the log. -->
+    <div class="live-view" data-live-view hidden>
+      <img data-live-frame alt="Live view of the browser running this test" />
+    </div>
+    <pre class="live-log" data-live-log aria-live="polite"></pre>
+  </div>
+</div>

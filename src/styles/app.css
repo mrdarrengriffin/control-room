@@ -1,0 +1,1744 @@
+/*
+ * Chrome follows the shadcn/ui design language — neutral zinc surfaces, hairline
+ * borders, a near-black primary, focus rings — expressed as plain CSS custom
+ * properties. No Tailwind and no React: nearly all of this UI is server-rendered
+ * markup, and Radix only earns its place for widgets this app does not have.
+ *
+ * DATA colours are a separate system and are NOT shadcn's. The series blue, the
+ * ordinal ramp and the four status colours come from the validated data-viz
+ * palette, and were re-checked against these new surfaces: the ordinal ramp
+ * clears the light end at 2.11:1 on white and 3.28:1 on the dark card. Chrome
+ * uses the neutral primary so that blue always means "this is data".
+ *
+ * Dark mode is declared twice on purpose: the media query follows the OS, the
+ * data-theme scope follows the in-app toggle, and the toggle must win both ways.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Page sits below cards so a card reads as an object, not a bordered region.
+     The old surfaces were ~1% apart, which is why everything looked flat. */
+  --page: #fafafa;
+  --surface: #ffffff;
+  --surface-sunken: #f4f4f5;
+
+  --ink: #09090b;
+  --ink-2: #52525b;
+  --ink-muted: #71717a;
+
+  --grid: #e4e4e7;
+  --axis: #d4d4d8;
+  --border: #e4e4e7;
+
+  --primary: #18181b;
+  --primary-fg: #fafafa;
+  --destructive: #dc2626;
+  --destructive-fg: #ffffff;
+  --ring: #18181b;
+
+  /* Single sequential hue: this app never needs categorical identity. */
+  --series: #2a78d6;
+  --series-wash: rgba(42, 120, 214, 0.1);
+  --series-track: #cde2fb;
+
+  /* Status palette is fixed across modes and never used for a series. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --success-text: #006300;
+
+  /* Ordinal blue ramp for the LCP phase breakdown — ordered parts of one
+     measurement, not separate identities. */
+  --ord-1: #86b6ef;
+  --ord-2: #5598e7;
+  --ord-3: #2a78d6;
+  --ord-4: #1c5cab;
+
+  --select-arrow: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2371717a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+    --page: #09090b;
+    /* Lifted above the page, unlike shadcn's default where card == background —
+       otherwise dark mode has the same flatness problem the light theme had. */
+    --surface: #18181b;
+    --surface-sunken: #27272a;
+    --ink: #fafafa;
+    --ink-2: #d4d4d8;
+    --ink-muted: #a1a1aa;
+    --grid: #27272a;
+    --axis: #3f3f46;
+    --border: #27272a;
+    --primary: #fafafa;
+    --primary-fg: #18181b;
+    --destructive: #dc2626;
+    --destructive-fg: #ffffff;
+    --ring: #d4d4d8;
+    --series: #3987e5;
+    --series-wash: rgba(57, 135, 229, 0.14);
+    --series-track: #184f95;
+    --success-text: #0ca30c;
+    --ord-1: #9ec5f4;
+    --ord-2: #6da7ec;
+    --ord-3: #3987e5;
+    --ord-4: #256abf;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --select-arrow: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a1a1aa' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page: #09090b;
+  --surface: #18181b;
+  --surface-sunken: #27272a;
+  --ink: #fafafa;
+  --ink-2: #d4d4d8;
+  --ink-muted: #a1a1aa;
+  --grid: #27272a;
+  --axis: #3f3f46;
+  --border: #27272a;
+  --primary: #fafafa;
+  --primary-fg: #18181b;
+  --destructive: #dc2626;
+  --destructive-fg: #ffffff;
+  --ring: #d4d4d8;
+  --series: #3987e5;
+  --series-wash: rgba(57, 135, 229, 0.14);
+  --series-track: #184f95;
+  --success-text: #0ca30c;
+  --ord-1: #9ec5f4;
+  --ord-2: #6da7ec;
+  --ord-3: #3987e5;
+  --ord-4: #256abf;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--series);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+h1 {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-size: 13px;
+}
+
+/* --- Shell ---------------------------------------------------------------- */
+
+.layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  /* Stays put while long pages scroll. Fixed to the viewport height with its own
+     overflow, so a long site list scrolls inside the sidebar rather than pushing
+     Settings and the theme toggle out of reach. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.brand strong {
+  font-size: 15px;
+}
+
+.brand span {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.nav-group h3 {
+  color: var(--ink-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-list a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--ink-2);
+}
+
+.nav-name {
+  /* Takes the slack so the live count stays hard right. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+/* --- Example-data banner -------------------------------------------------- */
+
+/*
+ * Amber, because "you are looking at data that isn't yours" is genuinely a
+ * caution. That is the status palette used for an actual status — not for a
+ * data series, which is the thing it must never be.
+ */
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--ink);
+}
+
+.demo-banner-text {
+  flex: 1 1 320px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.demo-banner-text strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.demo-banner code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* --- Login / first-run setup --------------------------------------------- */
+
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.gate-card h1 {
+  margin-bottom: 10px;
+}
+
+.gate-card form {
+  margin-top: 16px;
+}
+
+/* The sign-out form must not disturb the nav row it lives in. */
+.nav-list form {
+  margin: 0;
+}
+
+/* Wrapper so the two nav groups refresh as one region without losing the gap
+   the sidebar's own flex layout used to provide. */
+.nav-live {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Last-deploy cell: status, then the identifying detail beneath it. */
+.deploy-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+}
+
+.deploy-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.deploy-meta code {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* A button that reads as a nav row. */
+.nav-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.nav-action:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.nav-action svg {
+  flex: none;
+  color: var(--ink-muted);
+}
+
+/* Site page heading with its favicon. */
+.site-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.site-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.button svg {
+  flex: none;
+}
+
+/* Live visitor count: a person glyph and a number, deliberately quiet. */
+.live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  /* Padding gives the change flash something to fill; the negative margin keeps
+     the badge optically aligned with the rest of the nav row. */
+  padding: 1px 4px;
+  margin-right: -4px;
+  border-radius: 5px;
+}
+
+.live-count[hidden] {
+  display: none;
+}
+
+.live-count svg {
+  fill: currentColor;
+}
+
+/* A solid pop when the number changes, then a fade back to quiet. The first
+   version washed at 10% opacity and was genuinely hard to notice; this fills the
+   badge and inverts the text so it reads from the corner of the eye. */
+/* Colour only — no scaling or reshaping, so the nav row never shifts. */
+@keyframes live-change {
+  0% {
+    background-color: color-mix(in srgb, var(--series) 30%, var(--surface));
+    color: var(--series);
+  }
+  40% {
+    background-color: color-mix(in srgb, var(--series) 30%, var(--surface));
+    color: var(--series);
+  }
+  100% {
+    background-color: transparent;
+    color: var(--ink-muted);
+  }
+}
+
+.live-count.is-changed {
+  animation: live-change 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-count.is-changed {
+    animation: none;
+  }
+}
+
+.nav-list a:hover {
+  background: var(--surface-sunken);
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.nav-list a[aria-current='page'] {
+  background: var(--series-wash);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.main {
+  min-width: 0;
+  padding: 24px 28px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+  color: var(--ink-2);
+}
+
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    /* Stacked on narrow screens, where pinning it would eat the whole screen. */
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
+
+  .main {
+    padding: 18px 16px 48px;
+  }
+}
+
+/* --- Filter row: one row above everything it scopes ----------------------- */
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.filter-row .filter-label {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.range-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.range-list a {
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.range-list a:hover {
+  background: var(--surface-sunken);
+  text-decoration: none;
+}
+
+.range-list a[aria-current='true'] {
+  background: var(--series-wash);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --- Cards ---------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  min-width: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.card-head .hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  /* Cards size to their content instead of stretching to the tallest in the row.
+     Stretching left a large dead area under short cards (the hero figure, a
+     breakdown with fewer rows than its neighbours). */
+  align-items: start;
+}
+
+.grid-2 {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.grid-3 {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.grid-4 {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+/* --- Grouped sections ----------------------------------------------------- */
+
+/*
+ * A recessed tray holding related cards. The point is depth: cards sit on a
+ * darker surface instead of floating on a page almost the same colour as they
+ * are, so a group reads as one object rather than N loose boxes.
+ */
+.group {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.group-head h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-2);
+}
+
+.group-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.setup-note h2 {
+  margin-bottom: 6px;
+}
+
+.setup-note .button-row {
+  margin-top: 12px;
+}
+
+/* --- Panel states -------------------------------------------------------- */
+
+.panel-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+
+.panel-note.is-error {
+  background: color-mix(in srgb, var(--critical) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--critical) 30%, var(--border));
+  color: var(--ink);
+}
+
+.panel-note code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-size: 13px;
+  padding: 6px 0;
+}
+
+/* --- Figures -------------------------------------------------------------- */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hero .hero-label {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.hero .hero-value {
+  /* Proportional figures: tabular-nums makes large numbers look loose. */
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stat .stat-label {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.stat .stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.stat .stat-sub {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+/* --- Status: colour is never the only channel ---------------------------- */
+
+/* shadcn badge: pill, hairline border, small semibold text. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.pill .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.pill .glyph {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.pill.is-good .dot {
+  background: var(--good);
+}
+
+.pill.is-warning .dot {
+  background: var(--warning);
+}
+
+.pill.is-serious .dot {
+  background: var(--serious);
+}
+
+.pill.is-critical .dot {
+  background: var(--critical);
+}
+
+.pill.is-neutral .dot {
+  background: var(--ink-muted);
+}
+
+/* --- Tables -------------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--grid);
+  vertical-align: top;
+}
+
+th {
+  color: var(--ink-muted);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+td.num,
+th.num {
+  text-align: right;
+  /* Columns of numbers align, so tabular figures are correct here. */
+  font-variant-numeric: tabular-nums;
+  padding-right: 0;
+}
+
+/* Every cell after the first needs left padding, otherwise a right-aligned
+   number butts straight against the next cell's content ("0Visit"). */
+td + td,
+th + th {
+  padding-left: 14px;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+/* A table view exists for every chart, so no value is tooltip-gated. */
+.table-view {
+  margin-top: 10px;
+}
+
+.table-view summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.table-view summary:hover {
+  color: var(--ink-2);
+}
+
+.table-view[open] summary {
+  margin-bottom: 8px;
+}
+
+/* --- Bar list ------------------------------------------------------------- */
+
+.bar-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-row .bar-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.bar-row .bar-value {
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-track {
+  grid-column: 1 / -1;
+  height: 8px;
+  background: var(--surface-sunken);
+  border-radius: 0 4px 4px 0;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--series);
+  /* Square at the baseline, 4px rounded at the data end. */
+  border-radius: 0 4px 4px 0;
+  min-width: 2px;
+}
+
+/* Compact inline stats — a glyph and a number, wrapped. Used where the shape of
+   the data matters less than the at-a-glance ranking (countries, devices). */
+.inline-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inline-stats li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.inline-glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.inline-icon {
+  fill: var(--ink-muted);
+  flex: none;
+}
+
+.inline-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.bar-secondary {
+  margin-left: 8px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* --- Chart --------------------------------------------------------------- */
+
+.chart {
+  position: relative;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart .tick {
+  fill: var(--ink-muted);
+  font-size: 11px;
+  font-family: var(--sans);
+}
+
+.chart .grid-line {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+
+.chart .axis-line {
+  stroke: var(--axis);
+  stroke-width: 1;
+}
+
+.chart .area {
+  fill: var(--series-wash);
+}
+
+.chart .line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart .end-dot {
+  fill: var(--series);
+  /* 2px surface ring keeps the marker legible where it crosses the line. */
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.chart .end-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+
+.chart .crosshair {
+  stroke: var(--axis);
+  stroke-width: 1;
+  opacity: 0;
+}
+
+.chart .hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.chart-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.08s ease;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.chart-tip strong {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.chart-tip .tip-row {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Forms & buttons ----------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.field label {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+/* Every text-entry type, not just [type=text] — the settings page uses password
+   fields for tokens, and they were falling through unstyled. */
+input[type='text'],
+input[type='password'],
+input[type='url'],
+input[type='email'],
+input[type='search'],
+input[type='number'],
+textarea,
+select {
+  font-family: var(--sans);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  width: 100%;
+}
+
+/* Fixed control height, matching the buttons they sit beside. */
+input[type='text'],
+input[type='password'],
+input[type='url'],
+input[type='email'],
+input[type='search'],
+input[type='number'],
+select {
+  height: 36px;
+  padding: 0 11px;
+}
+
+textarea {
+  padding: 9px 11px;
+}
+
+/*
+ * The native select arrow is drawn tight against the border edge and can't be
+ * inset, so it gets replaced with a chevron we can position. Colour is carried
+ * in a custom property because a background-image SVG cannot inherit
+ * currentColor.
+ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--surface);
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 14px 14px;
+  padding-right: 34px;
+}
+
+/* Firefox draws a focus inner-border on selects that the ring already covers. */
+select::-ms-expand {
+  display: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-muted);
+}
+
+input[type='text']:focus-visible,
+input[type='password']:focus-visible,
+input[type='url']:focus-visible,
+input[type='email']:focus-visible,
+input[type='search']:focus-visible,
+input[type='number']:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+  border-color: var(--ring);
+}
+
+input[type='checkbox'] {
+  accent-color: var(--series);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+  min-height: 76px;
+  resize: vertical;
+}
+
+/* Outline is the default variant, as in shadcn; primary is the neutral
+   near-black, which keeps blue meaning "data" rather than "button". */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.button:hover {
+  background: var(--surface-sunken);
+  text-decoration: none;
+}
+
+.button.is-primary,
+.button.is-primary:hover {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--primary-fg);
+}
+
+.button.is-primary:hover {
+  opacity: 0.9;
+}
+
+.button.is-danger,
+.button.is-danger:hover {
+  background: var(--destructive);
+  border-color: transparent;
+  color: var(--destructive-fg);
+}
+
+.button.is-danger:hover {
+  opacity: 0.9;
+}
+
+/* One ring for every interactive thing, shadcn style. */
+.button:focus-visible,
+.nav-action:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* --- Lists of records ---------------------------------------------------- */
+
+.record-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.record {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.record:last-child {
+  border-bottom: 0;
+}
+
+.record .record-main {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.record .record-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.record .record-meta {
+  color: var(--ink-muted);
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 1px;
+}
+
+.record .record-meta code {
+  font-family: var(--mono);
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+
+.flash {
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.flash.is-ok {
+  background: color-mix(in srgb, var(--good) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--good) 30%, var(--border));
+}
+
+.flash.is-error {
+  background: color-mix(in srgb, var(--critical) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--critical) 30%, var(--border));
+}
+
+/* --- Settings & add-site -------------------------------------------------- */
+
+.url-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.setting-field {
+  padding: 14px 0;
+  border-top: 1px solid var(--grid);
+}
+
+.setting-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-key {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.setting-hint {
+  margin: 4px 0 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  display: block;
+}
+
+.setting-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.setting-form input {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+/* --- Audit deep dive ----------------------------------------------------- */
+
+.lcp-verdict {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* Stacked bar: the 2px gaps show the card surface through, which is what
+   separates the segments — no strokes around the marks. */
+.stack {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  background: var(--surface);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stack-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+}
+
+.ord-1 { background: var(--ord-1); }
+.ord-2 { background: var(--ord-2); }
+.ord-3 { background: var(--ord-3); }
+.ord-4 { background: var(--ord-4); }
+
+.stack-key {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.stack-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.stack-key strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.key-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.lcp-element {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--grid);
+}
+
+.lcp-element h3 {
+  margin-bottom: 10px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+
+.node-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 0;
+  align-items: flex-start;
+}
+
+.node-detail + .node-detail {
+  border-top: 1px solid var(--grid);
+}
+
+.node-facts {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.node-facts p {
+  margin: 0;
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.node-facts code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface-sunken);
+  padding: 1px 5px;
+  border-radius: 4px;
+  word-break: break-word;
+  /* Snippets can be long; wrap rather than forcing the card to scroll. */
+  max-width: 100%;
+}
+
+.node-key {
+  color: var(--ink-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex: none;
+  min-width: 54px;
+}
+
+/* Element crop: the full-page screenshot clipped to one element's rect. */
+.element-shot {
+  margin: 0;
+  flex: none;
+}
+
+.element-shot-box {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+}
+
+.element-shot-box img {
+  position: absolute;
+  max-width: none;
+  display: block;
+}
+
+.element-shot-highlight {
+  position: absolute;
+  border: 2px solid var(--critical);
+  border-radius: 2px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.element-shot figcaption {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.findings {
+  display: flex;
+  flex-direction: column;
+}
+
+.finding {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.finding:first-child {
+  padding-top: 0;
+}
+
+.finding:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.finding-title {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.finding-description {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  max-width: 78ch;
+}
+
+.finding-description code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.finding-nodes {
+  margin-top: 10px;
+}
+
+.finding-nodes h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- Live run ------------------------------------------------------------ */
+
+.live-label {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+/* Flex rather than grid: when the live view is hidden (no screencast for this
+   run) it is display:none and the log simply takes the whole row, where an empty
+   grid track would leave a gap. */
+.live-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.live-view {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.live-view img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+
+.live-log {
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+
+.run-log {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+  max-height: 300px;
+  overflow: auto;
+}
+
+/* --- Test runner & runs -------------------------------------------------- */
+
+.test-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+}
+
+.test-form {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.test-form .note {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.test-form .spacer {
+  margin-top: auto;
+}
+
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.run {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.run:last-child {
+  border-bottom: 0;
+}
+
+.run-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-title {
+  font-weight: 500;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A chip that is also a button — used for one-click page suggestions. */
+.chip-action {
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--mono);
+  color: var(--ink);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-action:hover:not([disabled]) {
+  border-color: var(--series);
+  color: var(--series);
+}
+
+.chip-action[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.shot {
+  width: 150px;
+}
+
+.shot img {
+  width: 100%;
+  height: 110px;
+  /* Full-page screenshots are very tall; anchor the crop to the top so the
+     thumbnail shows the part of the page anyone would recognise. */
+  object-fit: cover;
+  object-position: top;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: block;
+  background: var(--surface-sunken);
+}
+
+.shot span {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run video {
+  max-width: 100%;
+  width: 380px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-top: 10px;
+  display: block;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

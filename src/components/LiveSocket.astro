@@ -1,0 +1,148 @@
+---
+/**
+ * The WebSocket client. Rendered on every site page, whether or not a run is in
+ * flight, for two jobs:
+ *
+ *  1. stream progress and screencast frames for the run being watched, and
+ *  2. refresh the runs table whenever ANY run finishes — including runs started
+ *     from another tab — without reloading the page.
+ *
+ * Lifecycle events are broadcast to every socket; frames and log lines only go
+ * to sockets that explicitly asked to watch a run, because frames are far too
+ * heavy to send to pages that will not display them.
+ */
+---
+
+<script>
+  const liveCard = document.getElementById('live-run');
+  const watchedRunId = liveCard instanceof HTMLElement ? liveCard.dataset.runId : undefined;
+
+  const statusEl = document.querySelector('[data-live-status]');
+  const logEl = document.querySelector('[data-live-log]');
+  const viewEl = document.querySelector('[data-live-view]');
+  const frameEl = document.querySelector('[data-live-frame]');
+
+  const setStatus = (text) => {
+    if (statusEl) statusEl.textContent = text;
+  };
+
+  const appendLines = (lines) => {
+    if (!logEl) return;
+    for (const line of lines) {
+      const stamp = `${(line.at / 1000).toFixed(1)}s`.padStart(6, ' ');
+      logEl.textContent += `${stamp}  ${line.text}\n`;
+    }
+    // Follow the tail, the way a terminal would.
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+
+  const showFrame = (data) => {
+    if (!(frameEl instanceof HTMLImageElement) || !(viewEl instanceof HTMLElement)) return;
+    frameEl.src = data;
+    viewEl.hidden = false;
+  };
+
+  /**
+   * Re-render the runs table by asking the server for this page again and
+   * swapping in just that section. Reusing the server-rendered markup avoids
+   * maintaining a second copy of the run list in client JavaScript.
+   */
+  let refreshing = false;
+  const refreshRuns = async () => {
+    const current = document.getElementById('runs-panel');
+    if (!current || refreshing) return;
+    refreshing = true;
+    try {
+      const url = new URL(location.href);
+      url.searchParams.delete('flash');
+      url.searchParams.delete('message');
+      const response = await fetch(url, { headers: { Accept: 'text/html' } });
+      if (!response.ok) return;
+      const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const fresh = parsed.getElementById('runs-panel');
+      if (fresh) current.innerHTML = fresh.innerHTML;
+    } catch {
+      // A failed refresh is not worth surfacing; the next event retries.
+    } finally {
+      refreshing = false;
+    }
+  };
+
+  let attempts = 0;
+  let done = false;
+
+  const connect = () => {
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${scheme}//${location.host}/ws`);
+
+    socket.addEventListener('open', () => {
+      attempts = 0;
+      if (watchedRunId && !done) {
+        socket.send(JSON.stringify({ type: 'watch', runId: watchedRunId }));
+      }
+    });
+
+    socket.addEventListener('message', (event) => {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      const mine = message.runId && message.runId === watchedRunId;
+
+      switch (message.type) {
+        case 'snapshot':
+          if (logEl) logEl.textContent = '';
+          appendLines(message.lines ?? []);
+          if (message.frame) showFrame(message.frame);
+          if (message.done) finish(message.status);
+          else setStatus(`${message.status}…`);
+          break;
+
+        case 'line':
+          if (mine) appendLines([message.line]);
+          break;
+
+        case 'frame':
+          if (mine) showFrame(message.data);
+          break;
+
+        case 'status':
+          if (mine) setStatus(`${message.status}…`);
+          break;
+
+        case 'unknown':
+          // The run is not in memory — finished long ago, or lost to a restart.
+          setStatus('not running (see the table below)');
+          void refreshRuns();
+          break;
+
+        case 'done':
+          if (mine) finish(message.status);
+          // Any run finishing can make the table stale, including one started in
+          // another tab.
+          else void refreshRuns();
+          break;
+      }
+    });
+
+    socket.addEventListener('close', () => {
+      // Stay connected even after the watched run ends, so the table keeps
+      // updating when runs are started elsewhere.
+      attempts += 1;
+      setTimeout(connect, Math.min(10_000, 500 * 2 ** Math.min(attempts, 5)));
+    });
+
+    socket.addEventListener('error', () => socket.close());
+  };
+
+  const finish = (status) => {
+    done = true;
+    setStatus(`finished: ${status}`);
+    void refreshRuns();
+  };
+
+  connect();
+</script>

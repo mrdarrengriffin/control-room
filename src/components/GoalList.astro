@@ -1,0 +1,73 @@
+---
+import { full } from '../lib/format';
+import type { GoalRow } from '../lib/providers/plausible';
+
+interface Props {
+  rows: GoalRow[];
+}
+
+const { rows } = Astro.props;
+
+/*
+ * Bars are scaled by visitors, the same measure the label leads with. Events are
+ * shown alongside because the gap between them is the interesting part — 840
+ * completions from 603 people means repeat activity.
+ */
+const max = Math.max(1, ...rows.map((row) => row.visitors));
+---
+
+{
+  rows.length === 0 ? (
+    <p class="empty">
+      No goals recorded. Goals are configured in Plausible, per site.
+    </p>
+  ) : (
+    <>
+      <div class="bar-rows">
+        {
+          rows.map((row) => (
+            <div class="bar-row">
+              <span class="bar-label" title={row.name}>{row.name}</span>
+              <span class="bar-value">
+                {full(row.visitors)}
+                <span class="bar-secondary">{full(row.events)} events</span>
+              </span>
+              <div class="bar-track">
+                <div
+                  class="bar-fill"
+                  style={`width: ${Math.max(1, (row.visitors / max) * 100)}%`}
+                ></div>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      <details class="table-view">
+        <summary>Table view</summary>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Goal</th>
+                <th class="num">Visitors</th>
+                <th class="num">Events</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                rows.map((row) => (
+                  <tr>
+                    <td>{row.name}</td>
+                    <td class="num">{full(row.visitors)}</td>
+                    <td class="num">{full(row.events)}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </>
+  )
+}

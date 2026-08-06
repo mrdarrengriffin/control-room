@@ -1,0 +1,182 @@
+---
+import type { SitemapPages } from '../lib/sitemap';
+import type { PanelResult, Site } from '../lib/types';
+
+interface Props {
+  site: Site;
+  /** Paths from Plausible's top-pages breakdown, if analytics is available. */
+  popular: string[];
+  sitemap?: PanelResult<SitemapPages>;
+  sitemapHref: string;
+}
+
+const { site, popular, sitemap, sitemapHref } = Astro.props;
+
+const testPages = site.testPages ?? ['/'];
+const interactivePages = site.interactivePages ?? [];
+
+const current = new Set(testPages);
+
+/*
+ * Suggestions are the two sources that already know what this site contains:
+ * Plausible's most-visited pages (which are the ones worth auditing) and the
+ * sitemap (which is exhaustive). Anything already listed is filtered out so the
+ * suggestions are only ever things you don't have.
+ */
+const popularSuggestions = popular
+  .filter((path) => !current.has(path))
+  .slice(0, 12);
+
+const sitemapSuggestions =
+  sitemap?.status === 'ok'
+    ? sitemap.data.paths.filter((path) => !current.has(path)).slice(0, 40)
+    : [];
+---
+
+<div class="card" id="pages">
+  <div class="card-head">
+    <h2>Test pages</h2>
+    <span class="hint">
+      {testPages.length} test{
+        interactivePages.length > 0
+          ? ` · ${interactivePages.length} interactive`
+          : ''
+      }
+    </span>
+  </div>
+
+  <form method="POST" action="/api/sites/pages">
+    <input type="hidden" name="slug" value={site.slug} />
+
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="testPages">Test pages — one path per line</label>
+        <textarea id="testPages" name="testPages" rows="8">{testPages.join('\n')}</textarea>
+        <span class="setting-hint">
+          Audited and captured by default. Full URLs are accepted and reduced to
+          paths.
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="interactivePages">Interactive pages</label>
+        <textarea id="interactivePages" name="interactivePages" rows="8"
+          >{interactivePages.join('\n')}</textarea
+        >
+        <span class="setting-hint">
+          Pages with scroll-driven sections — image sequences and the like. The
+          scroll-performance test aims at these.
+        </span>
+      </div>
+    </div>
+
+    <button class="button is-primary" type="submit">Save pages</button>
+  </form>
+
+  <div class="lcp-element">
+    <h3>Add from your most-visited pages</h3>
+    {
+      popularSuggestions.length === 0 ? (
+        <p class="empty">
+          {
+            popular.length === 0
+              ? 'No analytics for this site, so there are no popularity suggestions.'
+              : 'Every popular page is already listed.'
+          }
+        </p>
+      ) : (
+        <div class="chips">
+          {
+            popularSuggestions.map((path) => (
+              <button class="chip chip-action" type="button" data-add-path={path}>
+                + {path}
+              </button>
+            ))
+          }
+        </div>
+      )
+    }
+  </div>
+
+  <div class="lcp-element">
+    <h3>Add from the sitemap</h3>
+    {
+      !sitemap ? (
+        <p class="setting-hint" style="margin:0">
+          <a class="button" href={sitemapHref}>Load sitemap</a>
+        </p>
+      ) : sitemap.status !== 'ok' ? (
+        <p class="panel-note">
+          <span aria-hidden="true">·</span>
+          <span>{sitemap.reason}</span>
+        </p>
+      ) : sitemapSuggestions.length === 0 ? (
+        <p class="empty">
+          Every page in the sitemap is already listed ({sitemap.data.total} found).
+        </p>
+      ) : (
+        <>
+          <p class="setting-hint">
+            {sitemap.data.total} URL{sitemap.data.total === 1 ? '' : 's'} in{' '}
+            {sitemap.data.source}
+            {sitemap.data.truncated ? ' — capped for display' : ''}. Showing{' '}
+            {sitemapSuggestions.length} not already listed.
+          </p>
+          <div class="button-row" style="margin-bottom:8px">
+            <button class="button" type="button" data-add-all>
+              Add all {sitemapSuggestions.length}
+            </button>
+          </div>
+          <div class="chips">
+            {
+              sitemapSuggestions.map((path) => (
+                <button class="chip chip-action" type="button" data-add-path={path}>
+                  + {path}
+                </button>
+              ))
+            }
+          </div>
+        </>
+      )
+    }
+  </div>
+</div>
+
+<script>
+  // Suggestions append to the test-pages box. Nothing is saved until the form is
+  // submitted, so clicking around is free.
+  const box = document.getElementById('testPages');
+
+  const append = (paths) => {
+    if (!(box instanceof HTMLTextAreaElement)) return;
+    const existing = box.value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+
+    for (const path of paths) {
+      if (!existing.includes(path)) existing.push(path);
+    }
+
+    box.value = existing.join('\n');
+  };
+
+  document.querySelectorAll('[data-add-path]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const path = button instanceof HTMLElement ? button.dataset.addPath : undefined;
+      if (!path) return;
+      append([path]);
+      button.setAttribute('disabled', 'disabled');
+    });
+  });
+
+  document.querySelector('[data-add-all]')?.addEventListener('click', () => {
+    const all = [...document.querySelectorAll('[data-add-path]')]
+      .map((button) => (button instanceof HTMLElement ? button.dataset.addPath : undefined))
+      .filter((path) => typeof path === 'string');
+    append(all);
+    document
+      .querySelectorAll('[data-add-path]')
+      .forEach((button) => button.setAttribute('disabled', 'disabled'));
+  });
+</script>

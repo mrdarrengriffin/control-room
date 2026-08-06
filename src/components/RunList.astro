@@ -1,0 +1,313 @@
+---
+import StatusPill from './StatusPill.astro';
+import type { Tone } from './StatusPill.astro';
+import { duration as formatDuration, exactTime, relativeTime } from '../lib/format';
+import { CATEGORY_LABELS } from '../lib/tests/lighthouse';
+import type { PageAudit } from '../lib/tests/lighthouse';
+import type { PageInteraction } from '../lib/tests/interaction';
+import type { RunRecord, RunStatus } from '../lib/types';
+
+interface Props {
+  runs: RunRecord[];
+}
+
+const { runs } = Astro.props;
+
+const TONES: Record<RunStatus, Tone> = {
+  passed: 'good',
+  failed: 'serious',
+  error: 'critical',
+  running: 'warning',
+  queued: 'neutral',
+};
+
+/** Lighthouse's own bands: 90+ green, 50–89 amber, below 50 red. */
+const scoreTone = (score: number | undefined): Tone =>
+  score === undefined
+    ? 'neutral'
+    : score >= 90
+      ? 'good'
+      : score >= 50
+        ? 'warning'
+        : 'critical';
+
+const SUMMARY_LABELS: Record<string, string> = {
+  performance: 'Performance',
+  accessibility: 'Accessibility',
+  'best-practices': 'Best practices',
+  seo: 'SEO',
+  pages: 'Pages',
+  formFactor: 'Form factor',
+  screenshots: 'Screenshots',
+  viewports: 'Viewports',
+  viewport: 'Viewport',
+  failed: 'Failed',
+  worstP95FrameMs: 'Worst p95 frame',
+  blockingMs: 'Blocking',
+  sizeBytes: 'Size',
+  url: 'URL',
+};
+
+const bytes = (value: number): string =>
+  value > 1_048_576
+    ? `${(value / 1_048_576).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(value / 1024))} KB`;
+
+const chipFor = (key: string, value: unknown): string => {
+  const label = SUMMARY_LABELS[key] ?? key;
+  if (key === 'sizeBytes' && typeof value === 'number') {
+    return `${label}: ${bytes(value)}`;
+  }
+  if ((key === 'blockingMs' || key === 'worstP95FrameMs') && typeof value === 'number') {
+    return `${label}: ${value} ms`;
+  }
+  return `${label}: ${value}`;
+};
+
+/*
+ * Both audit and interaction runs store their detail under `pages`, so these
+ * MUST gate on run.kind. Without that check an interaction run's pages get read
+ * as audit pages, and rendering reaches for a `scores` array that isn't there.
+ */
+const auditPages = (run: RunRecord): PageAudit[] => {
+  if (run.kind !== 'audit') return [];
+  const detail = run.detail as { pages?: PageAudit[] } | undefined;
+  const pages = Array.isArray(detail?.pages) ? detail.pages : [];
+  return pages.filter((page) => Array.isArray(page?.scores));
+};
+
+const interactionPages = (run: RunRecord): PageInteraction[] => {
+  if (run.kind !== 'interaction') return [];
+  const detail = run.detail as { pages?: PageInteraction[] } | undefined;
+  return Array.isArray(detail?.pages) ? detail.pages : [];
+};
+
+const ms = (value: number | undefined): string =>
+  value === undefined ? '—' : `${Math.round(value)} ms`;
+
+const pathOf = (url: string): string => {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+};
+---
+
+{
+  runs.length === 0 ? (
+    <p class="empty">No runs yet.</p>
+  ) : (
+    <div class="record-list">
+      {
+        runs.map((run) => {
+          const shots = (run.artifacts ?? []).filter((a) => a.kind === 'screenshot');
+          const videos = (run.artifacts ?? []).filter((a) => a.kind === 'video');
+          const audits = auditPages(run);
+          const scrolls = interactionPages(run);
+
+          return (
+            <div class="run">
+              <div class="run-head">
+                <span class="run-title">{run.label}</span>
+                <StatusPill tone={TONES[run.status]} label={run.status} />
+                <span class="chip" title={exactTime(run.startedAt)}>
+                  {relativeTime(run.startedAt)}
+                </span>
+                {
+                  run.durationMs !== undefined && (
+                    <span class="chip">
+                      {formatDuration(run.durationMs / 1000)}
+                    </span>
+                  )
+                }
+                {
+                  run.kind === 'audit' && audits.length > 0 && (
+                    <a
+                      class="button"
+                      href={`/sites/${run.siteSlug}/runs/${run.id}`}
+                    >
+                      Deep dive
+                    </a>
+                  )
+                }
+              </div>
+
+              {
+                run.error && (
+                  <p class="panel-note is-error" style="margin-top:8px">
+                    <span aria-hidden="true">×</span>
+                    <span>{run.error}</span>
+                  </p>
+                )
+              }
+
+              {
+                run.summary && (
+                  <div class="chips">
+                    {
+                      Object.entries(run.summary).map(([key, value]) => (
+                        <span class="chip">{chipFor(key, value)}</span>
+                      ))
+                    }
+                  </div>
+                )
+              }
+
+              {
+                audits.length > 0 && (
+                  <details class="table-view">
+                    <summary>Scores</summary>
+                    <div class="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Page</th>
+                            {
+                              audits[0].scores.map((score) => (
+                                <th>{CATEGORY_LABELS[score.key]}</th>
+                              ))
+                            }
+                            <th class="num">LCP</th>
+                            <th class="num">TBT</th>
+                            <th class="num">CLS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {
+                            audits.map((page) => (
+                              <tr>
+                                <td>{pathOf(page.url)}</td>
+                                {
+                                  page.scores.map((score) => (
+                                    <td>
+                                      <StatusPill
+                                        tone={scoreTone(score.score)}
+                                        label={
+                                          score.score === undefined
+                                            ? 'n/a'
+                                            : String(score.score)
+                                        }
+                                      />
+                                    </td>
+                                  ))
+                                }
+                                <td class="num">{ms(page.metrics.lcp)}</td>
+                                <td class="num">{ms(page.metrics.tbt)}</td>
+                                <td class="num">
+                                  {
+                                    page.metrics.cls === undefined
+                                      ? '—'
+                                      : page.metrics.cls.toFixed(3)
+                                  }
+                                </td>
+                              </tr>
+                            ))
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <p class="note" style="color:var(--ink-muted);font-size:12px">
+                      Per-element detail, the LCP breakdown and element
+                      screenshots are on the deep dive page.
+                    </p>
+                  </details>
+                )
+              }
+
+              {
+                scrolls.length > 0 && (
+                  <details class="table-view">
+                    <summary>Scroll measurements</summary>
+                    <div class="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Page</th>
+                            <th class="num">p50 frame</th>
+                            <th class="num">p95 frame</th>
+                            <th class="num">Worst frame</th>
+                            <th class="num">Long frames</th>
+                            <th class="num">Blocking</th>
+                            <th class="num">Images</th>
+                            <th>Within budget</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {
+                            scrolls.map((page) => (
+                              <tr>
+                                <td>{pathOf(page.url)}</td>
+                                <td class="num">{page.p50FrameMs} ms</td>
+                                <td class="num">{page.p95FrameMs} ms</td>
+                                <td class="num">{page.maxFrameMs} ms</td>
+                                <td class="num">
+                                  {page.longFrames} / {page.frameCount}
+                                </td>
+                                <td class="num">{page.blockingMs} ms</td>
+                                <td class="num">
+                                  {page.imagesLoadedDuringScroll} / {page.imageCount}
+                                </td>
+                                <td>
+                                  <StatusPill
+                                    tone={page.withinBudget ? 'good' : 'serious'}
+                                    label={page.withinBudget ? 'yes' : 'no'}
+                                  />
+                                </td>
+                              </tr>
+                            ))
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                    <p class="note" style="color:var(--ink-muted);font-size:12px">
+                      Images column counts image requests that completed
+                      <em> during</em> the scroll — a high number on an
+                      image-sequence page means frames are being fetched late.
+                    </p>
+                  </details>
+                )
+              }
+
+              {
+                shots.length > 0 && (
+                  <div class="shots">
+                    {
+                      shots.map((shot) => (
+                        <a class="shot" href={`/api/artifacts/${shot.path}`} target="_blank" rel="noreferrer">
+                          <img src={`/api/artifacts/${shot.path}`} alt={shot.label} loading="lazy" />
+                          <span>
+                            {shot.label}
+                            {shot.bytes ? ` · ${bytes(shot.bytes)}` : ''}
+                          </span>
+                        </a>
+                      ))
+                    }
+                  </div>
+                )
+              }
+
+              {
+                run.log && run.log.length > 0 && (
+                  <details class="table-view">
+                    <summary>Log</summary>
+                    <pre class="run-log">{run.log.join('\n')}</pre>
+                  </details>
+                )
+              }
+
+              {
+                videos.map((video) => (
+                  <video controls preload="metadata" src={`/api/artifacts/${video.path}`}>
+                    <a href={`/api/artifacts/${video.path}`}>{video.label}</a>
+                  </video>
+                ))
+              }
+            </div>
+          );
+        })
+      }
+    </div>
+  )
+}

@@ -1,0 +1,269 @@
+---
+import Shell from '../../layouts/Shell.astro';
+import StatusPill from '../../components/StatusPill.astro';
+import type { Tone } from '../../components/StatusPill.astro';
+import { discoverSite } from '../../lib/discover';
+import type { Discovery, FindingStatus } from '../../lib/discover';
+import { messageOf } from '../../lib/types';
+
+const params = Astro.url.searchParams;
+const rawUrl = params.get('url')?.trim() ?? '';
+const flash = params.get('flash');
+const flashMessage = params.get('message');
+
+let discovery: Discovery | undefined;
+let discoveryError: string | undefined;
+
+if (rawUrl !== '') {
+  try {
+    discovery = await discoverSite(rawUrl);
+  } catch (error) {
+    discoveryError = messageOf(error);
+  }
+}
+
+/*
+ * 'unavailable' means the service itself isn't connected, which is a different
+ * thing from "this site isn't on it" — so it gets the warning tone and points at
+ * settings, while a genuine miss stays neutral.
+ */
+const TONES: Record<FindingStatus, Tone> = {
+  found: 'good',
+  'not-found': 'neutral',
+  unavailable: 'warning',
+};
+
+const LABELS: Record<FindingStatus, string> = {
+  found: 'found',
+  'not-found': 'not found',
+  unavailable: 'not connected',
+};
+---
+
+<Shell title="Add a site">
+  <div class="page-head">
+    <div>
+      <h1>Add a site</h1>
+      <p>
+        Give a URL. Connected services are searched for a matching zone, deploy
+        site, analytics property and repository.
+      </p>
+    </div>
+  </div>
+
+  {
+    flash && flashMessage && (
+      <p class={`flash ${flash === 'ok' ? 'is-ok' : 'is-error'}`}>{flashMessage}</p>
+    )
+  }
+
+  <div class="card">
+    <form method="GET" action="/sites/new" class="url-form">
+      <div class="field" style="flex:1 1 320px; margin:0">
+        <label for="url">Site URL</label>
+        <input
+          type="text"
+          id="url"
+          name="url"
+          value={rawUrl}
+          placeholder="https://example.org"
+          autocomplete="off"
+          spellcheck="false"
+          required
+        />
+      </div>
+      <button class="button is-primary" type="submit">Look it up</button>
+    </form>
+  </div>
+
+  {
+    discoveryError && (
+      <p class="panel-note is-error">
+        <span aria-hidden="true">×</span>
+        <span>{discoveryError}</span>
+      </p>
+    )
+  }
+
+  {
+    discovery && (
+      <>
+        <div class="card">
+          <div class="card-head">
+            <h2>What was found for {discovery.hostname}</h2>
+          </div>
+
+          <div class="record-list">
+            {
+              [
+                { name: 'Cloudflare', finding: discovery.cloudflare },
+                { name: 'Netlify', finding: discovery.netlify },
+                { name: 'Plausible', finding: discovery.plausible },
+                { name: 'GitHub', finding: discovery.github },
+              ].map((row) => (
+                <div class="record">
+                  <div class="record-main">
+                    <span class="record-title">{row.name}</span>
+                    <div class="record-meta">
+                      <span>{row.finding.detail}</span>
+                    </div>
+                  </div>
+                  <StatusPill
+                    tone={TONES[row.finding.status]}
+                    label={LABELS[row.finding.status]}
+                  />
+                </div>
+              ))
+            }
+          </div>
+
+          {
+            discovery.github.status === 'found' &&
+              discovery.github.value &&
+              !discovery.github.value.certain && (
+                <p class="panel-note" style="margin-top:12px">
+                  <span aria-hidden="true">!</span>
+                  <span>
+                    <strong>Repository is a guess. </strong>
+                    It was matched by name, not confirmed by a deploy. Check it
+                    before saving.
+                  </span>
+                </p>
+              )
+          }
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Confirm and save</h2>
+            <span class="hint">Everything is editable</span>
+          </div>
+
+          <form method="POST" action="/api/sites/add">
+            <input type="hidden" name="url" value={discovery.url} />
+
+            <div class="grid grid-2">
+              <div class="field">
+                <label for="name">Name</label>
+                <input type="text" id="name" name="name" value={discovery.name} />
+              </div>
+              <div class="field">
+                <label for="slug">Slug</label>
+                <input type="text" id="slug" name="slug" value={discovery.slug} />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="description">Description</label>
+              <input type="text" id="description" name="description" placeholder="Optional" />
+            </div>
+
+            <div class="grid grid-2">
+              <div class="field">
+                <label for="cloudflareZoneId">Cloudflare zone id</label>
+                <input
+                  type="text"
+                  id="cloudflareZoneId"
+                  name="cloudflareZoneId"
+                  value={discovery.cloudflare.value?.zoneId ?? ''}
+                  placeholder="Leave blank to disable cache purging"
+                />
+              </div>
+              <div class="field">
+                <label for="netlifySiteId">Netlify site id</label>
+                <input
+                  type="text"
+                  id="netlifySiteId"
+                  name="netlifySiteId"
+                  placeholder="Leave blank — matched by domain automatically"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-3">
+              <div class="field">
+                <label for="plausibleDomain">Plausible domain</label>
+                <input
+                  type="text"
+                  id="plausibleDomain"
+                  name="plausibleDomain"
+                  value={discovery.plausible.value?.domain ?? ''}
+                  placeholder="Leave blank for no analytics"
+                />
+              </div>
+              <div class="field">
+                <label for="plausibleBaseUrl">Plausible instance</label>
+                <input
+                  type="text"
+                  id="plausibleBaseUrl"
+                  name="plausibleBaseUrl"
+                  value={discovery.plausible.value?.baseUrl ?? ''}
+                  placeholder="Blank = default instance"
+                />
+              </div>
+              <div class="field">
+                <label for="plausibleKeyEnv">Plausible key variable</label>
+                <input
+                  type="text"
+                  id="plausibleKeyEnv"
+                  name="plausibleKeyEnv"
+                  value={discovery.plausible.value?.keyEnv ?? ''}
+                  placeholder="Blank = PLAUSIBLE_API_KEY"
+                />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="githubRepo">GitHub repository</label>
+              <input
+                type="text"
+                id="githubRepo"
+                name="githubRepo"
+                value={discovery.github.value?.repo ?? ''}
+                placeholder="owner/repo"
+                list="repo-candidates"
+              />
+              {
+                discovery.githubCandidates.length > 0 && (
+                  <datalist id="repo-candidates">
+                    {
+                      discovery.githubCandidates.map((candidate) => (
+                        <option value={candidate}></option>
+                      ))
+                    }
+                  </datalist>
+                )
+              }
+              {
+                discovery.githubCandidates.length > 0 && (
+                  <span class="setting-hint">
+                    Other matches: {discovery.githubCandidates.join(', ')}
+                  </span>
+                )
+              }
+            </div>
+
+            <div class="grid grid-2">
+              <div class="field">
+                <label for="testPages">Test pages (one path per line)</label>
+                <textarea id="testPages" name="testPages">/</textarea>
+              </div>
+              <div class="field">
+                <label for="interactivePages">
+                  Interactive pages — scroll-driven sections
+                </label>
+                <textarea
+                  id="interactivePages"
+                  name="interactivePages"
+                  placeholder="/product-page/"
+                ></textarea>
+              </div>
+            </div>
+
+            <button class="button is-primary" type="submit">Add site</button>
+          </form>
+        </div>
+      </>
+    )
+  }
+</Shell>

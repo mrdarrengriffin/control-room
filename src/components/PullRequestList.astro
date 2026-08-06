@@ -1,0 +1,103 @@
+---
+import StatusPill from './StatusPill.astro';
+import type { Tone } from './StatusPill.astro';
+import { exactTime, relativeTime } from '../lib/format';
+import type { CheckState, PullRequest } from '../lib/providers/github';
+
+interface Props {
+  pullRequests: PullRequest[];
+  /** Show which repo each PR belongs to (the cross-site dashboard needs it). */
+  showRepo?: boolean;
+}
+
+const { pullRequests, showRepo = false } = Astro.props;
+
+const TONES: Record<CheckState, Tone> = {
+  success: 'good',
+  failure: 'critical',
+  pending: 'warning',
+  cancelled: 'neutral',
+  skipped: 'neutral',
+  neutral: 'neutral',
+  unknown: 'neutral',
+};
+
+const rollupLabel = (pr: PullRequest): string => {
+  const { checks } = pr;
+  if (checks.total === 0) return 'no checks';
+  if (checks.failure > 0) return `${checks.failure} failing`;
+  if (checks.pending > 0) return `${checks.pending} running`;
+  return `${checks.success}/${checks.total} passed`;
+};
+---
+
+{
+  pullRequests.length === 0 ? (
+    <p class="empty">No open pull requests.</p>
+  ) : (
+    <div class="record-list">
+      {
+        pullRequests.map((pr) => (
+          <div class="record">
+            <div class="record-main">
+              <a class="record-title" href={pr.url} rel="noreferrer">
+                {pr.title}
+              </a>
+              <div class="record-meta">
+                <span>
+                  {showRepo ? `${pr.repo}#${pr.number}` : `#${pr.number}`}
+                </span>
+                <span>{pr.author}</span>
+                <span><code>{pr.headRefName}</code> → <code>{pr.baseRefName}</code></span>
+                <span title={exactTime(pr.updatedAt)}>
+                  {relativeTime(pr.updatedAt)}
+                </span>
+                <span>+{pr.additions} −{pr.deletions}</span>
+                {pr.isDraft && <span class="tag">draft</span>}
+                {
+                  pr.reviewDecision === 'APPROVED' && (
+                    <span class="tag">approved</span>
+                  )
+                }
+                {
+                  pr.reviewDecision === 'CHANGES_REQUESTED' && (
+                    <span class="tag">changes requested</span>
+                  )
+                }
+              </div>
+
+              {
+                pr.checks.total > 0 && (
+                  <details class="table-view">
+                    <summary>{pr.checks.total} CI jobs</summary>
+                    <div class="checks">
+                      {
+                        pr.checks.checks.map((check) => (
+                          <StatusPill
+                            tone={TONES[check.state]}
+                            label={
+                              check.workflow
+                                ? `${check.workflow} / ${check.name}`
+                                : check.name
+                            }
+                            title={`${check.name}: ${check.state}`}
+                          />
+                        ))
+                      }
+                    </div>
+                  </details>
+                )
+              }
+            </div>
+
+            <StatusPill
+              tone={TONES[pr.checks.overall]}
+              label={rollupLabel(pr)}
+              title={`CI: ${pr.checks.overall}`}
+            />
+          </div>
+        ))
+      }
+    </div>
+  )
+}

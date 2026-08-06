@@ -1,0 +1,30 @@
+---
+export type Tone = 'good' | 'warning' | 'serious' | 'critical' | 'neutral';
+
+interface Props {
+  tone: Tone;
+  label: string;
+  title?: string;
+}
+
+const { tone, label, title } = Astro.props;
+
+/**
+ * Every pill carries a glyph and a word as well as the colour. Two of the four
+ * status colours sit below 3:1 on the light surface by design, so the icon plus
+ * label pairing is what actually conveys state — colour never carries it alone.
+ */
+const GLYPHS: Record<Tone, string> = {
+  good: '✓',
+  warning: '!',
+  serious: '!',
+  critical: '×',
+  neutral: '·',
+};
+---
+
+<span class={`pill is-${tone}`} title={title}>
+  <span class="dot" aria-hidden="true"></span>
+  <span class="glyph" aria-hidden="true">{GLYPHS[tone]}</span>
+  <span>{label}</span>
+</span>

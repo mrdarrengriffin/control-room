@@ -1,0 +1,88 @@
+---
+import StatusPill from './StatusPill.astro';
+import type { Tone } from './StatusPill.astro';
+import { duration, exactTime, relativeTime } from '../lib/format';
+import type { Deploy, DeployHealth } from '../lib/providers/netlify';
+
+interface Props {
+  deploys: Deploy[];
+}
+
+const { deploys } = Astro.props;
+
+const TONES: Record<DeployHealth, Tone> = {
+  ready: 'good',
+  building: 'warning',
+  error: 'critical',
+  cancelled: 'neutral',
+  other: 'neutral',
+};
+---
+
+{
+  deploys.length === 0 ? (
+    <p class="empty">No deploys found.</p>
+  ) : (
+    <div class="record-list">
+      {
+        deploys.map((deploy) => (
+          <div class="record">
+            <div class="record-main">
+              <span class="record-title">
+                {deploy.title ?? deploy.state}
+              </span>
+              <div class="record-meta">
+                {deploy.context && <span>{deploy.context}</span>}
+                {deploy.branch && <span>{deploy.branch}</span>}
+                {
+                  deploy.commitRef && (
+                    <span>
+                      {
+                        deploy.commitUrl ? (
+                          <a href={deploy.commitUrl} rel="noreferrer">
+                            <code>{deploy.commitRef.slice(0, 7)}</code>
+                          </a>
+                        ) : (
+                          <code>{deploy.commitRef.slice(0, 7)}</code>
+                        )
+                      }
+                    </span>
+                  )
+                }
+                <span title={exactTime(deploy.createdAt)}>
+                  {relativeTime(deploy.createdAt)}
+                </span>
+                {
+                  deploy.deploySeconds !== undefined && (
+                    <span>built in {duration(deploy.deploySeconds)}</span>
+                  )
+                }
+              </div>
+              {
+                deploy.errorMessage && (
+                  <div class="record-meta" style="color: var(--ink-2)">
+                    <span>{deploy.errorMessage}</span>
+                  </div>
+                )
+              }
+            </div>
+
+            <StatusPill
+              tone={TONES[deploy.health]}
+              label={deploy.state}
+              title={`Netlify state: ${deploy.state}`}
+            />
+
+            {
+              deploy.logUrl && (
+                <a class="button" href={deploy.logUrl} rel="noreferrer">
+                  Build log
+                </a>
+              )
+            }
+          </div>
+        ))
+      }
+    </div>
+  )
+}

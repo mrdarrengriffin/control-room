@@ -1,0 +1,54 @@
+# Everything someone needs to run Control Room. No source checkout required —
+# copy this file into an empty folder and run:
+#
+#   docker compose up -d
+#
+# To update to the latest release:
+#
+#   docker compose pull && docker compose up -d
+#
+# Configuration and data live in ./data next to this file. Back that folder up;
+# it holds your password hash, your API tokens and your site registry.
+name: control-room
+
+services:
+  control-room:
+    image: ghcr.io/mrdarrengriffin/control-room:latest
+    restart: unless-stopped
+
+    ports:
+      # Loopback by default. To reach it from other machines set
+      # CONTROL_ROOM_BIND=0.0.0.0 — but read the note in the README first: over
+      # plain HTTP the password crosses the network in the clear, so put it
+      # behind TLS or a private network such as Tailscale.
+      - "${CONTROL_ROOM_BIND:-127.0.0.1}:${CONTROL_ROOM_PORT:-4331}:4321"
+
+    volumes:
+      - ./data:/workspace/data
+
+    # Tokens are normally entered in Settings and stored in ./data. This file is
+    # optional and only needed if you would rather supply them as environment
+    # variables.
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      CONTROL_ROOM_DATA_DIR: /workspace/data
+      # The bundled gh CLI reads GH_TOKEN; kept in step with the settings key.
+      GH_TOKEN: ${GITHUB_TOKEN:-}
+
+    # Chromium crashes on Docker's default 64MB /dev/shm, and this app runs
+    # Lighthouse and Playwright.
+    shm_size: "1gb"
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4321/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

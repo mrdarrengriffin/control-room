@@ -1,0 +1,552 @@
+---
+import Shell from '../../layouts/Shell.astro';
+import AreaChart from '../../components/AreaChart.astro';
+import BarList from '../../components/BarList.astro';
+import CountryList from '../../components/CountryList.astro';
+import DeviceList from '../../components/DeviceList.astro';
+import GoalList from '../../components/GoalList.astro';
+import DeployList from '../../components/DeployList.astro';
+import Panel from '../../components/Panel.astro';
+import PullRequestList from '../../components/PullRequestList.astro';
+import LiveRun from '../../components/LiveRun.astro';
+import LiveSocket from '../../components/LiveSocket.astro';
+import PagesEditor from '../../components/PagesEditor.astro';
+import RangeFilter from '../../components/RangeFilter.astro';
+import RunList from '../../components/RunList.astro';
+import StatTile from '../../components/StatTile.astro';
+import TestRunner from '../../components/TestRunner.astro';
+import { snapshot } from '../../lib/live';
+import { isInFlight } from '../../lib/runner';
+import { titlesFor } from '../../lib/site-meta';
+import { loadSitemapPages } from '../../lib/sitemap';
+import { listRuns } from '../../lib/store';
+import { compact, duration, full, percent } from '../../lib/format';
+import { pullRequests } from '../../lib/providers/github';
+import { listDeploys } from '../../lib/providers/netlify';
+import {
+  DATE_RANGE_LABELS,
+  isDateRange,
+  siteAnalytics,
+} from '../../lib/providers/plausible';
+import type { DateRange } from '../../lib/providers/plausible';
+import { loadRegistry } from '../../lib/sites';
+import { unconfigured } from '../../lib/types';
+
+const { slug } = Astro.params;
+const { sites: allSites } = await loadRegistry();
+const site = slug ? allSites.find((entry) => entry.slug === slug) : undefined;
+
+if (!site) {
+  return new Response(`No site "${slug}" in data/sites.json`, { status: 404 });
+}
+
+/*
+ * Subdomains live inside their parent's Cloudflare zone, so several sites can
+ * legitimately share a zone id. Purging by URL is scoped, but purge-everything
+ * hits the whole zone — which means clearing one site's cache silently clears
+ * its siblings too. Worth saying out loud before the button is pressed.
+ */
+const zoneSiblings = site.cloudflare?.zoneId
+  ? allSites.filter(
+      (entry) =>
+        entry.slug !== site.slug &&
+        entry.cloudflare?.zoneId === site.cloudflare?.zoneId,
+    )
+  : [];
+
+const params = Astro.url.searchParams;
+const rangeParam = params.get('range') ?? '7d';
+const range: DateRange = isDateRange(rangeParam) ? rangeParam : '7d';
+
+const flash = params.get('flash');
+const flashMessage = params.get('message');
+
+const [analytics, deploys, prs, runs] = await Promise.all([
+  siteAnalytics(site, range),
+  listDeploys(site, 8),
+  site.github?.repo
+    ? pullRequests(site.github.repo)
+    : Promise.resolve(
+        unconfigured<never[]>(`No github.repo for "${site.slug}"`),
+      ),
+  listRuns(site.slug, 12),
+]);
+
+/*
+ * Which run the live panel follows: the one just started (?watch=), otherwise
+ * whatever is still in flight — so opening the page mid-run picks it up, and the
+ * WebSocket replays the log so far rather than starting blank.
+ */
+const inFlight = runs.find(isInFlight);
+const watchedId = params.get('watch') ?? inFlight?.id;
+const liveSnapshot = watchedId ? snapshot(watchedId) : undefined;
+const watchedRun = watchedId
+  ? runs.find((run) => run.id === watchedId)
+  : undefined;
+
+const liveLabel = liveSnapshot?.label ?? watchedRun?.label;
+const liveStatus = liveSnapshot?.status ?? watchedRun?.status ?? 'queued';
+const showLive = Boolean(
+  watchedId &&
+    liveLabel &&
+    (liveSnapshot
+      ? !liveSnapshot.done
+      : watchedRun
+        ? isInFlight(watchedRun)
+        : false),
+);
+const busy = runs.some(isInFlight);
+
+/*
+ * The sitemap is only fetched when asked for — it is an outbound request to the
+ * live site and can pull several child sitemaps, so it has no business running on
+ * every page view.
+ */
+const wantsSitemap = params.get('sitemap') === '1';
+const sitemap = wantsSitemap ? await loadSitemapPages(site.url) : undefined;
+
+const sitemapHref = (() => {
+  const next = new URL(Astro.url);
+  next.searchParams.set('sitemap', '1');
+  next.searchParams.delete('flash');
+  next.searchParams.delete('message');
+  return `${next.pathname}${next.search}#pages`;
+})();
+
+/** Most-visited paths, used to suggest test pages worth having. */
+const popularPages =
+  analytics.pages.status === 'ok'
+    ? analytics.pages.data
+        .map((row) => row.label)
+        .filter((label) => label.startsWith('/'))
+    : [];
+
+const series =
+  analytics.timeseries.status === 'ok' ? analytics.timeseries.data : [];
+
+/*
+ * The whole analytics section stands or falls together. `summary` is the
+ * cheapest representative call, so its outcome decides whether to render the
+ * group or the setup banner.
+ */
+const hasAnalytics = analytics.summary.status === 'ok';
+const analyticsReason =
+  analytics.summary.status === 'ok' ? '' : analytics.summary.reason;
+/** Missing key = a global setting; missing domain = this site's config. */
+const needsPlausibleKey = analyticsReason.includes('PLAUSIBLE_API_KEY');
+
+/*
+ * The heading always uses the site's own document title, regardless of the
+ * sidebar label preference — the domain sits directly beneath it here, so a
+ * longer, more descriptive title costs nothing and reads better than a
+ * hand-maintained name that may have drifted.
+ */
+const siteTitle = (await titlesFor([site])).get(site.slug) ?? site.name;
+
+// Nothing here is cached, so this is genuinely the moment the data was read.
+// The zone name is included because the container runs UTC while your clock
+// probably doesn't, and an unlabelled time looks an hour wrong.
+const fetchedAt = new Date().toLocaleTimeString('en-GB', {
+  hour12: false,
+  timeZoneName: 'short',
+});
+
+/* Countries, devices and goals get their own compact components below. */
+const breakdowns = [
+  { title: 'Top pages', label: 'Page', result: analytics.pages },
+  { title: 'Top sources', label: 'Source', result: analytics.sources },
+] as const;
+---
+
+<Shell title={siteTitle} activeSlug={site.slug}>
+  <div class="page-head">
+    <div>
+      <h1 class="site-title">
+        <img
+          class="site-icon"
+          src={`/api/favicon/${site.slug}`}
+          alt=""
+          width="26"
+          height="26"
+        />
+        {siteTitle}
+      </h1>
+      <p data-live-region="head-meta">
+        <a href={site.url} rel="noreferrer">{site.url}</a>
+        {site.description && <> · {site.description}</>}
+        <> · updated live · {fetchedAt}</>
+      </p>
+    </div>
+    <div class="button-row">
+      {site.github?.repo && (
+        <a
+          class="button"
+          href={`https://github.com/${site.github.repo}`}
+          rel="noreferrer"
+          title={site.github.repo}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+          </svg>
+          Repo
+        </a>
+      )}
+      <a class="button" href={`/sites/${site.slug}/edit`}>Edit site</a>
+    </div>
+  </div>
+
+  {
+    flash && flashMessage && (
+      <p class={`flash ${flash === 'ok' ? 'is-ok' : 'is-error'}`}>
+        {flashMessage}
+      </p>
+    )
+  }
+
+  {
+    /*
+     * Everything below depends on Plausible. Rather than showing six cards of
+     * em-dashes when it isn't available, the whole section collapses to one
+     * banner explaining how to connect it — and when it IS available the cards
+     * are grouped under a single heading so they read as one thing.
+     */
+    !hasAnalytics ? (
+      <section class="card setup-note">
+        <h2>No analytics for this site</h2>
+        <p class="finding-description">{analyticsReason}</p>
+        <div class="button-row">
+          {
+            needsPlausibleKey ? (
+              <a class="button is-primary" href="/settings">Connect Plausible</a>
+            ) : (
+              <a class="button is-primary" href={`/sites/${site.slug}/edit`}>
+                Set the Plausible domain
+              </a>
+            )
+          }
+          <a class="button" href={`/sites/${site.slug}/edit?discover=1`}>
+            Look it up automatically
+          </a>
+        </div>
+        <p class="setting-hint">
+          Cache purging, deploys, pull requests and site tests below do not need
+          Plausible and are unaffected.
+        </p>
+      </section>
+    ) : (
+      <section class="group" data-live-region="analytics">
+        <header class="group-head">
+          <div>
+            <h2>Analytics</h2>
+            <span class="group-meta">Plausible · {site.plausible?.domain}</span>
+          </div>
+          <RangeFilter current={range} />
+        </header>
+
+        <div class="group-body">
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="hero">
+        <span class="hero-label">Visitors · {DATE_RANGE_LABELS[range]}</span>
+        <span class="hero-value">
+          {
+            analytics.summary.status === 'ok'
+              ? compact(analytics.summary.data.visitors)
+              : '—'
+          }
+        </span>
+      </div>
+      <div style="margin-top:12px">
+        <Panel result={analytics.summary} />
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="grid grid-4">
+        <StatTile
+          label="Pageviews"
+          value={
+            analytics.summary.status === 'ok'
+              ? compact(analytics.summary.data.pageviews)
+              : '—'
+          }
+          sub={DATE_RANGE_LABELS[range]}
+        />
+        <StatTile
+          label="Bounce rate"
+          value={
+            analytics.summary.status === 'ok'
+              ? percent(analytics.summary.data.bounceRate)
+              : '—'
+          }
+        />
+        <StatTile
+          label="Visit duration"
+          value={
+            analytics.summary.status === 'ok'
+              ? duration(analytics.summary.data.visitDuration)
+              : '—'
+          }
+          sub="mean"
+        />
+        <StatTile
+          label="Views per visit"
+          value={
+            analytics.summary.status === 'ok' &&
+            analytics.summary.data.viewsPerVisit !== undefined
+              ? analytics.summary.data.viewsPerVisit.toFixed(2)
+              : '—'
+          }
+        />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Visitors over time</h2>
+      <span class="hint">{DATE_RANGE_LABELS[range]}</span>
+    </div>
+    <Panel result={analytics.timeseries}>
+      {
+        series.length > 0 && (
+          <AreaChart
+            points={series.map((point) => ({
+              label: point.date,
+              value: point.visitors,
+            }))}
+            seriesName="Visitors"
+            extraColumns={[
+              {
+                header: 'Pageviews',
+                values: series.map((point) => full(point.pageviews)),
+              },
+            ]}
+          />
+        )
+      }
+    </Panel>
+  </div>
+
+  <div class="grid grid-2">
+    {
+      breakdowns.map((breakdown) => (
+        <div class="card">
+          <div class="card-head">
+            <h2>{breakdown.title}</h2>
+            <span class="hint">{DATE_RANGE_LABELS[range]}</span>
+          </div>
+          <Panel result={breakdown.result}>
+            {
+              breakdown.result.status === 'ok' && (
+                <BarList
+                  rows={breakdown.result.data.map((row) => ({
+                    label: row.label,
+                    value: row.visitors,
+                    secondary: row.pageviews,
+                  }))}
+                  labelHeader={breakdown.label}
+                  valueHeader="Visitors"
+                  secondaryHeader="Pageviews"
+                />
+              )
+            }
+          </Panel>
+        </div>
+      ))
+    }
+          </div>
+
+          {/* Countries and devices are a ranking, not a shape — compact glyph
+              rows say the same thing in a fraction of the height. */}
+          <div class="grid grid-3">
+            <div class="card">
+              <div class="card-head">
+                <h2>Countries</h2>
+                <span class="hint">{DATE_RANGE_LABELS[range]}</span>
+              </div>
+              <Panel result={analytics.countries}>
+                {
+                  analytics.countries.status === 'ok' && (
+                    <CountryList rows={analytics.countries.data} />
+                  )
+                }
+              </Panel>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h2>Devices</h2>
+                <span class="hint">{DATE_RANGE_LABELS[range]}</span>
+              </div>
+              <Panel result={analytics.devices}>
+                {
+                  analytics.devices.status === 'ok' && (
+                    <DeviceList rows={analytics.devices.data} />
+                  )
+                }
+              </Panel>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h2>Goals</h2>
+                <span class="hint">visitors · events</span>
+              </div>
+              <Panel result={analytics.goals}>
+                {
+                  analytics.goals.status === 'ok' && (
+                    <GoalList rows={analytics.goals.data} />
+                  )
+                }
+              </Panel>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Cloudflare cache</h2>
+      <span class="hint">
+        {site.cloudflare?.zoneId ? `Zone ${site.cloudflare.zoneId.slice(0, 8)}…` : 'No zone configured'}
+      </span>
+    </div>
+
+    {
+      !site.cloudflare?.zoneId ? (
+        <p class="panel-note">
+          <span aria-hidden="true">·</span>
+          <span>
+            <strong>Not configured. </strong>
+            Add <code>cloudflare.zoneId</code> for this site in{' '}
+            <code>data/sites.json</code>.
+          </span>
+        </p>
+      ) : (
+        <div class="grid grid-2">
+          <form
+            method="POST"
+            action="/api/purge"
+            data-confirm={
+              zoneSiblings.length > 0
+                ? `This purges the WHOLE zone, which also clears ${zoneSiblings
+                    .map((entry) => entry.name)
+                    .join(', ')}. Continue?`
+                : `Purge the ENTIRE Cloudflare cache for ${site.name}?`
+            }
+          >
+            <input type="hidden" name="slug" value={site.slug} />
+            <input type="hidden" name="mode" value="everything" />
+            <p class="stat-sub" style="margin:0 0 10px">
+              Drops every cached object for this zone. Recoverable — the origin
+              refills it — but expect a brief spike in origin load.
+            </p>
+            {
+              zoneSiblings.length > 0 && (
+                <p class="panel-note is-error" style="margin:0 0 10px">
+                  <span aria-hidden="true">!</span>
+                  <span>
+                    <strong>Shared zone. </strong>
+                    This zone also serves{' '}
+                    {zoneSiblings.map((entry) => entry.name).join(', ')}, so
+                    purging everything clears{' '}
+                    {zoneSiblings.length === 1 ? 'it' : 'them'} too. Purging by
+                    URL below only affects the URLs you list.
+                  </span>
+                </p>
+              )
+            }
+            <button class="button is-danger" type="submit">
+              Purge everything
+            </button>
+          </form>
+
+          <form method="POST" action="/api/purge">
+            <input type="hidden" name="slug" value={site.slug} />
+            <input type="hidden" name="mode" value="files" />
+            <div class="field">
+              <label for="urls">
+                URLs or paths, one per line (max 30 per request)
+              </label>
+              <textarea id="urls" name="urls" placeholder={`/\n/blog/\n${site.url}/assets/app.css`}></textarea>
+            </div>
+            <button class="button is-primary" type="submit">
+              Purge these URLs
+            </button>
+          </form>
+        </div>
+      )
+    }
+  </div>
+
+  <div class="card" data-live-region="deploys">
+    <div class="card-head">
+      <h2>Netlify deploys</h2>
+      <span class="hint">Most recent first</span>
+    </div>
+    <Panel result={deploys}>
+      {deploys.status === 'ok' && <DeployList deploys={deploys.data} />}
+    </Panel>
+  </div>
+
+  <div class="card" data-live-region="prs">
+    <div class="card-head">
+      <h2>Pull requests</h2>
+      <span class="hint">{site.github?.repo ?? 'No repo configured'}</span>
+    </div>
+    <Panel result={prs}>
+      {prs.status === 'ok' && <PullRequestList pullRequests={prs.data} />}
+    </Panel>
+  </div>
+
+  {
+    showLive && watchedId && liveLabel && (
+      <LiveRun runId={watchedId} label={liveLabel} status={liveStatus} />
+    )
+  }
+
+  <PagesEditor
+    site={site}
+    popular={popularPages}
+    sitemap={sitemap}
+    sitemapHref={sitemapHref}
+  />
+
+  <div class="card" id="tests">
+    <div class="card-head">
+      <h2>Site tests</h2>
+      <span class="hint">
+        Runs one at a time · {site.testPages?.length ?? 1} test page{
+          (site.testPages?.length ?? 1) === 1 ? '' : 's'
+        }
+      </span>
+    </div>
+    <TestRunner site={site} />
+  </div>
+
+  <div class="card" id="runs-panel">
+    <div class="card-head">
+      <h2>Recent runs</h2>
+      <span class="hint">
+        {busy ? 'A run is in progress — updated live' : 'Newest first'}
+      </span>
+    </div>
+    <RunList runs={runs} />
+  </div>
+
+  <LiveSocket />
+</Shell>
+
+<script>
+  // Purge-everything is outward-facing and affects a live site, so it asks first.
+  document.querySelectorAll('form[data-confirm]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      if (!window.confirm(form.getAttribute('data-confirm') ?? 'Are you sure?')) {
+        event.preventDefault();
+      }
+    });
+  });
+</script>

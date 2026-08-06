@@ -1,0 +1,58 @@
+---
+import Gate from '../layouts/Gate.astro';
+import { isConfigured } from '../lib/auth';
+
+// Setup is a one-time act; once a password exists this page is just the login.
+if (isConfigured()) {
+  return Astro.redirect('/login', 303);
+}
+
+const error = Astro.url.searchParams.get('error');
+---
+
+<Gate title="Set a password">
+  <h1>Set a password</h1>
+  <p class="finding-description">
+    This is the only account. The password protects everything the dashboard can
+    do — purging caches, reading analytics, starting browser runs — so pick
+    something real.
+  </p>
+
+  {error && <p class="flash is-error">{error}</p>}
+
+  <form method="POST" action="/api/auth">
+    <input type="hidden" name="action" value="setup" />
+
+    <div class="field">
+      <label for="password">Password</label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        autocomplete="new-password"
+        minlength="10"
+        required
+        autofocus
+      />
+    </div>
+
+    <div class="field">
+      <label for="confirm">Confirm password</label>
+      <input
+        type="password"
+        id="confirm"
+        name="confirm"
+        autocomplete="new-password"
+        minlength="10"
+        required
+      />
+    </div>
+
+    <button class="button is-primary" type="submit">Set password</button>
+  </form>
+
+  <p class="setting-hint" style="margin-top:14px">
+    Stored as an scrypt hash in <code>data/auth.json</code>. There is no reset —
+    delete that file to start over.
+  </p>
+</Gate>

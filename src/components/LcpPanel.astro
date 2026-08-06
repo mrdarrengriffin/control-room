@@ -1,0 +1,164 @@
+---
+import ElementShot from './ElementShot.astro';
+import StatusPill from './StatusPill.astro';
+import { renderDescription } from '../lib/markdown';
+import type { LcpDetail, PageAudit } from '../lib/tests/lighthouse';
+
+interface Props {
+  lcp: LcpDetail;
+  screenshot: PageAudit['screenshot'];
+}
+
+const { lcp, screenshot } = Astro.props;
+
+/*
+ * The LCP subparts are ordered phases of one measurement, so this is a
+ * part-to-whole stacked bar on an ordinal blue ramp rather than categorical
+ * colours. Every segment is direct-labelled in the key below and repeated in the
+ * table view, so no value depends on reading a colour.
+ */
+const total = lcp.subparts.reduce((sum, part) => sum + part.ms, 0);
+const percentFor = (ms: number) => (total > 0 ? (ms / total) * 100 : 0);
+
+// Slowest phase is the actionable one — worth calling out in words.
+const slowest = [...lcp.subparts].sort((a, b) => b.ms - a.ms)[0];
+
+const lcpTone =
+  lcp.totalMs === undefined
+    ? 'neutral'
+    : lcp.totalMs <= 2500
+      ? 'good'
+      : lcp.totalMs <= 4000
+        ? 'warning'
+        : 'critical';
+---
+
+<div class="card">
+  <div class="card-head">
+    <h2>Largest Contentful Paint</h2>
+    <StatusPill
+      tone={lcpTone}
+      label={lcp.totalMs === undefined ? 'not measured' : `${Math.round(lcp.totalMs)} ms`}
+      title="Good ≤ 2,500ms · needs improvement ≤ 4,000ms"
+    />
+  </div>
+
+  {
+    lcp.subparts.length > 0 && (
+      <>
+        <p class="lcp-verdict">
+          {
+            slowest
+              ? `Most of the time is ${slowest.label.toLowerCase()} (${Math.round(slowest.ms)} ms of ${Math.round(total)} ms).`
+              : ''
+          }
+        </p>
+
+        <div class="stack" role="img" aria-label="LCP time split by phase">
+          {
+            lcp.subparts.map((part, index) => (
+              <span
+                class={`stack-seg ord-${Math.min(index + 1, 4)}`}
+                style={`width:${percentFor(part.ms)}%`}
+              ></span>
+            ))
+          }
+        </div>
+
+        <ul class="stack-key">
+          {
+            lcp.subparts.map((part, index) => (
+              <li>
+                <span class={`key-dot ord-${Math.min(index + 1, 4)}`} aria-hidden="true"></span>
+                {part.label}
+                <strong>{Math.round(part.ms)} ms</strong>
+              </li>
+            ))
+          }
+        </ul>
+
+        <details class="table-view">
+          <summary>Table view</summary>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Phase</th>
+                  <th class="num">Duration</th>
+                  <th class="num">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  lcp.subparts.map((part) => (
+                    <tr>
+                      <td>{part.label}</td>
+                      <td class="num">{Math.round(part.ms)} ms</td>
+                      <td class="num">{percentFor(part.ms).toFixed(1)}%</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </>
+    )
+  }
+
+  {
+    lcp.node && (
+      <div class="lcp-element">
+        <h3>The LCP element</h3>
+        <div class="node-detail">
+          {
+            screenshot && lcp.node.rect && (
+              <ElementShot screenshot={screenshot} node={lcp.node} maxWidth={340} />
+            )
+          }
+          <div class="node-facts">
+            {
+              lcp.node.selector && (
+                <p><span class="node-key">selector</span><code>{lcp.node.selector}</code></p>
+              )
+            }
+            {
+              lcp.node.snippet && (
+                <p><span class="node-key">html</span><code>{lcp.node.snippet}</code></p>
+              )
+            }
+            {
+              lcp.node.label && (
+                <p><span class="node-key">content</span><span>{lcp.node.label}</span></p>
+              )
+            }
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  {
+    lcp.checklist.length > 0 && (
+      <div class="lcp-element">
+        <h3>Request discovery</h3>
+        <div class="checks">
+          {
+            lcp.checklist.map((item) => (
+              <StatusPill
+                tone={item.passed ? 'good' : 'serious'}
+                label={item.label}
+              />
+            ))
+          }
+        </div>
+      </div>
+    )
+  }
+
+  {
+    lcp.description && (
+      <p class="finding-description" set:html={renderDescription(lcp.description)} />
+    )
+  }
+</div>

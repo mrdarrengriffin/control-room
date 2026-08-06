@@ -1,0 +1,24 @@
+node_modules
+dist
+.astro
+.git
+.github
+.devcontainer
+.vscode
+.idea
+.env
+.env.*
+!.env.example
+data/runs
+data/artifacts
+# Never let real credentials or a real registry into a build context — the dev
+# and build stages do `COPY . .`, and this project now publishes public images.
+# The runtime reads all of these from the mounted data volume anyway.
+data/secrets.json
+data/auth.json
+data/sites.json
+data/site-meta.json
+data/favicons
+npm-debug.log*
+*.md
+!README.md

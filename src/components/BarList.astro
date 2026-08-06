@@ -1,0 +1,90 @@
+---
+import { full } from '../lib/format';
+
+interface Props {
+  rows: { label: string; value: number; secondary?: number }[];
+  labelHeader: string;
+  valueHeader: string;
+  secondaryHeader?: string;
+  /**
+   * Suppress the table twin. Only pass false where the values are already
+   * readable as text elsewhere — otherwise this is the accessible fallback.
+   */
+  showTable?: boolean;
+}
+
+const {
+  rows,
+  labelHeader,
+  valueHeader,
+  secondaryHeader,
+  showTable = true,
+} = Astro.props;
+
+/*
+ * One series, so every bar takes the same hue — bar length already encodes
+ * magnitude, and shading each bar darker-where-bigger would double-encode it.
+ * Bars are 8px (well under the 24px cap), square at the baseline and 4px rounded
+ * at the data end. Values sit outside the bar, so nothing can clip.
+ */
+const max = Math.max(1, ...rows.map((row) => row.value));
+---
+
+{
+  rows.length === 0 ? (
+    <p class="empty">Nothing recorded in this range.</p>
+  ) : (
+    <>
+      <div class="bar-rows">
+        {
+          rows.map((row) => (
+            <div class="bar-row">
+              <span class="bar-label" title={row.label}>{row.label}</span>
+              <span class="bar-value">{full(row.value)}</span>
+              <div class="bar-track">
+                <div
+                  class="bar-fill"
+                  style={`width: ${Math.max(1, (row.value / max) * 100)}%`}
+                ></div>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      {showTable && (
+      <details class="table-view">
+        <summary>Table view</summary>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{labelHeader}</th>
+                <th class="num">{valueHeader}</th>
+                {secondaryHeader && <th class="num">{secondaryHeader}</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {
+                rows.map((row) => (
+                  <tr>
+                    <td>{row.label}</td>
+                    <td class="num">{full(row.value)}</td>
+                    {
+                      secondaryHeader && (
+                        <td class="num">
+                          {row.secondary === undefined ? '—' : full(row.secondary)}
+                        </td>
+                      )
+                    }
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </details>
+      )}
+    </>
+  )
+}

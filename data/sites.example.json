@@ -1,0 +1,56 @@
+{
+  "$comment": [
+    "Copy this to data/sites.json and edit. sites.json is gitignored because it",
+    "contains Cloudflare zone and Netlify site identifiers.",
+    "",
+    "TWO WAYS TO LIST A SITE:",
+    "",
+    "1. \"domains\": a flat list of domains, one per Plausible site. Everything is",
+    "   derived (slug, name, url, plausible.domain). Each entry is its own site,",
+    "   subdomains included, because Plausible treats each as a separate property.",
+    "   Paste your Plausible site list straight in.",
+    "",
+    "2. \"sites\": full entries, for anything needing Cloudflare/Netlify/GitHub ids",
+    "   or custom test pages. An entry here wins over the same domain in",
+    "   \"domains\", so you can start with the shorthand and promote sites as you",
+    "   add integration ids.",
+    "",
+    "  cloudflare.zoneId   Cloudflare dashboard > site > Overview > Zone ID",
+    "  netlify.siteId      Netlify > Site configuration > Site ID (or the domain)",
+    "  plausible.domain    defaults to the hostname of `url` when omitted",
+    "  plausible.baseUrl   only when this site lives on a DIFFERENT Plausible",
+    "                      instance to PLAUSIBLE_BASE_URL",
+    "  plausible.keyEnv    name of the env var holding that instance's API key",
+    "  github.repo         owner/repo (case-sensitive)",
+    "  testPages           paths to audit and capture by default",
+    "  interactivePages    paths with scroll-driven image sequences"
+  ],
+
+  "domains": [
+    "example.org",
+    "docs.example.org",
+    "blog.example.org"
+  ],
+
+  "sites": [
+    {
+      "slug": "openhomefoundation",
+      "name": "Open Home Foundation",
+      "url": "https://openhomefoundation.org",
+      "tags": ["foundation"],
+      "plausible": { "domain": "openhomefoundation.org" },
+      "github": { "repo": "OpenHomeFoundation/openhomefoundation.org" },
+      "testPages": ["/", "/about/"]
+    },
+    {
+      "slug": "example-other-plausible",
+      "name": "Site on a second Plausible instance",
+      "url": "https://other.example.com",
+      "plausible": {
+        "domain": "other.example.com",
+        "baseUrl": "https://analytics.other.example.com",
+        "keyEnv": "PLAUSIBLE_API_KEY_OTHER"
+      }
+    }
+  ]
+}

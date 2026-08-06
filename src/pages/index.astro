@@ -1,0 +1,356 @@
+---
+import Shell from '../layouts/Shell.astro';
+import BarList from '../components/BarList.astro';
+import Panel from '../components/Panel.astro';
+import PullRequestList from '../components/PullRequestList.astro';
+import RangeFilter from '../components/RangeFilter.astro';
+import StatTile from '../components/StatTile.astro';
+import StatusPill from '../components/StatusPill.astro';
+import type { Tone } from '../components/StatusPill.astro';
+import { compact, exactTime, full, relativeTime } from '../lib/format';
+import type { DeployHealth } from '../lib/providers/netlify';
+import { pullRequestsForRepos } from '../lib/providers/github';
+import { siteStatus } from '../lib/providers/netlify';
+import {
+  DATE_RANGE_LABELS,
+  isDateRange,
+  summaryForSites,
+} from '../lib/providers/plausible';
+import type { DateRange } from '../lib/providers/plausible';
+import { loadRegistry } from '../lib/sites';
+
+const params = Astro.url.searchParams;
+const rangeParam = params.get('range') ?? '7d';
+const range: DateRange = isDateRange(rangeParam) ? rangeParam : '7d';
+const mineOnly = params.get('prs') !== 'all';
+
+const { sites, problems } = await loadRegistry();
+const repos = sites
+  .map((site) => site.github?.repo)
+  .filter((repo): repo is string => Boolean(repo));
+
+// Every panel here is independent, so everything is fetched concurrently.
+const [summaries, repoResults, deployStates] = await Promise.all([
+  summaryForSites(sites, range),
+  pullRequestsForRepos(repos, mineOnly ? { author: '@me' } : {}),
+  Promise.all(
+    sites.map(async (site) => ({ site, result: await siteStatus(site) })),
+  ),
+]);
+
+interface VisitorRow {
+  label: string;
+  value: number;
+  secondary: number;
+}
+
+const visitorRows: VisitorRow[] = summaries
+  .map(({ site, result }) =>
+    result.status === 'ok'
+      ? {
+          label: site.name,
+          value: result.data.visitors,
+          secondary: result.data.pageviews,
+        }
+      : undefined,
+  )
+  .filter((row): row is VisitorRow => row !== undefined)
+  .sort((a, b) => b.value - a.value);
+
+const totalVisitors = visitorRows.reduce((sum, row) => sum + row.value, 0);
+const totalPageviews = visitorRows.reduce((sum, row) => sum + row.secondary, 0);
+
+/** Shown only when no site returned analytics, so the reason appears once. */
+const analyticsProblem =
+  visitorRows.length === 0
+    ? summaries.find(({ result }) => result.status !== 'ok')?.result
+    : undefined;
+
+const pullRequests = repoResults
+  .flatMap(({ result }) => (result.status === 'ok' ? result.data : []))
+  .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+const prProblems = repoResults.filter(({ result }) => result.status !== 'ok');
+const failingCi = pullRequests.filter(
+  (pr) => pr.checks.overall === 'failure',
+).length;
+const pendingCi = pullRequests.filter(
+  (pr) => pr.checks.overall === 'pending',
+).length;
+
+const DEPLOY_TONES: Record<DeployHealth, Tone> = {
+  ready: 'good',
+  building: 'warning',
+  error: 'critical',
+  cancelled: 'neutral',
+  other: 'neutral',
+};
+
+const visitorsFor = (slug: string): number | undefined => {
+  const entry = summaries.find(({ site }) => site.slug === slug);
+  return entry && entry.result.status === 'ok'
+    ? entry.result.data.visitors
+    : undefined;
+};
+
+const prCountFor = (repo: string | undefined): number =>
+  repo ? pullRequests.filter((pr) => pr.repo === repo).length : 0;
+
+// Nothing here is cached, so this is genuinely the moment the data was read.
+// The zone name is included because the container runs UTC while your clock
+// probably doesn't, and an unlabelled time looks an hour wrong.
+const fetchedAt = new Date().toLocaleTimeString('en-GB', {
+  hour12: false,
+  timeZoneName: 'short',
+});
+
+const scopeHref = (scope: 'mine' | 'all') => {
+  const next = new URL(Astro.url);
+  if (scope === 'mine') next.searchParams.delete('prs');
+  else next.searchParams.set('prs', 'all');
+  next.searchParams.delete('flash');
+  next.searchParams.delete('message');
+  return `${next.pathname}${next.search}`;
+};
+---
+
+<Shell title="All sites">
+  <div class="page-head">
+    <div>
+      <h1>All sites</h1>
+      <p data-live-region="head-meta">
+        {sites.length} site{sites.length === 1 ? '' : 's'} under management ·
+        updated live · {fetchedAt}
+      </p>
+    </div>
+  </div>
+
+  {
+    problems.length > 0 && (
+      <div class="panel-note is-error">
+        <span aria-hidden="true">×</span>
+        <span>
+          <strong>Registry problems. </strong>
+          {problems.join(' ')}
+        </span>
+      </div>
+    )
+  }
+
+  {
+    sites.length === 0 ? (
+      <div class="card">
+        <h2>Get started</h2>
+        <p>
+          Copy <code>data/sites.example.json</code> to <code>data/sites.json</code>{' '}
+          and list your sites, then copy <code>.env.example</code> to{' '}
+          <code>.env</code> and add your tokens.
+        </p>
+      </div>
+    ) : (
+      <>
+        <div class="filter-row">
+          <span class="filter-label">Range</span>
+          <RangeFilter current={range} />
+          <span style="flex:1"></span>
+          <span class="filter-label">Pull requests</span>
+          <div class="range-list">
+            <a href={scopeHref('mine')} aria-current={mineOnly ? 'true' : undefined}>
+              Mine
+            </a>
+            <a href={scopeHref('all')} aria-current={!mineOnly ? 'true' : undefined}>
+              Everyone
+            </a>
+          </div>
+        </div>
+
+        <div class="grid grid-2" data-live-region="kpis">
+          <div class="card">
+            <div class="hero">
+              <span class="hero-label">
+                Visitors across all sites · {DATE_RANGE_LABELS[range]}
+              </span>
+              <span class="hero-value">{compact(totalVisitors)}</span>
+            </div>
+            {
+              analyticsProblem && (
+                <div style="margin-top:12px">
+                  <Panel result={analyticsProblem} />
+                </div>
+              )
+            }
+          </div>
+
+          <div class="card">
+            <div class="grid grid-4">
+              <StatTile
+                label="Pageviews"
+                value={compact(totalPageviews)}
+                sub={DATE_RANGE_LABELS[range]}
+                title={`${full(totalPageviews)} pageviews`}
+              />
+              <StatTile
+                label="Open PRs"
+                value={String(pullRequests.length)}
+                sub={mineOnly ? 'authored by you' : 'all authors'}
+              />
+              <StatTile
+                label="Failing CI"
+                value={String(failingCi)}
+                sub={`${pendingCi} still running`}
+              />
+              <StatTile
+                label="Sites"
+                value={String(sites.length)}
+                sub={`${repos.length} with a repo`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-live-region="visitors-by-site">
+          <div class="card-head">
+            <h2>Visitors by site</h2>
+            <span class="hint">{DATE_RANGE_LABELS[range]}</span>
+          </div>
+          {
+            visitorRows.length === 0 ? (
+              <p class="empty">No analytics available.</p>
+            ) : (
+              <BarList
+                rows={visitorRows}
+                labelHeader="Site"
+                valueHeader="Visitors"
+                secondaryHeader="Pageviews"
+              />
+            )
+          }
+        </div>
+
+        <div class="card" data-live-region="site-status">
+          <div class="card-head">
+            <h2>Site status</h2>
+            <span class="hint">Latest published Netlify deploy</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Site</th>
+                  <th>Last deploy</th>
+                  <th class="num">Visitors</th>
+                  <th class="num">Open PRs</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  deployStates.map(({ site, result }) => (
+                    <tr>
+                      <td><a href={`/sites/${site.slug}`}>{site.name}</a></td>
+                      <td>
+                        {
+                          result.status === 'ok' && result.data.deploy ? (
+                            <div class="deploy-cell">
+                              <StatusPill
+                                tone={DEPLOY_TONES[result.data.deploy.health]}
+                                label={result.data.deploy.state}
+                                title={result.data.deploy.title ?? undefined}
+                              />
+                              <span class="deploy-meta">
+                                {
+                                  result.data.deploy.pullRequest &&
+                                    site.github?.repo && (
+                                      <a
+                                        href={`https://github.com/${site.github.repo}/pull/${result.data.deploy.pullRequest}`}
+                                        rel="noreferrer"
+                                      >
+                                        #{result.data.deploy.pullRequest}
+                                      </a>
+                                    )
+                                }
+                                {
+                                  result.data.deploy.commitRef &&
+                                    (result.data.deploy.commitUrl ? (
+                                      <a
+                                        href={result.data.deploy.commitUrl}
+                                        rel="noreferrer"
+                                      >
+                                        <code>
+                                          {result.data.deploy.commitRef.slice(0, 7)}
+                                        </code>
+                                      </a>
+                                    ) : (
+                                      <code>
+                                        {result.data.deploy.commitRef.slice(0, 7)}
+                                      </code>
+                                    ))
+                                }
+                                <span title={exactTime(result.data.deploy.publishedAt)}>
+                                  {relativeTime(result.data.deploy.publishedAt)}
+                                </span>
+                              </span>
+                            </div>
+                          ) : (
+                            <span class="empty">
+                              {
+                                result.status === 'ok'
+                                  ? 'no deploys'
+                                  : result.status === 'unconfigured'
+                                    ? 'not on Netlify'
+                                    : 'error'
+                              }
+                            </span>
+                          )
+                        }
+                      </td>
+                      <td class="num">
+                        {
+                          visitorsFor(site.slug) === undefined
+                            ? '—'
+                            : full(visitorsFor(site.slug) as number)
+                        }
+                      </td>
+                      <td class="num">{prCountFor(site.github?.repo)}</td>
+                      <td><a href={site.url} rel="noreferrer">Visit</a></td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" data-live-region="pull-requests">
+          <div class="card-head">
+            <h2>Open pull requests</h2>
+            <span class="hint">
+              {mineOnly ? 'Authored by you' : 'All authors'} · {repos.length} repo{
+                repos.length === 1 ? '' : 's'
+              }
+            </span>
+          </div>
+
+          {
+            prProblems.map(({ repo, result }) => (
+              <div style="margin-bottom:8px" data-repo={repo}>
+                <Panel result={result} />
+              </div>
+            ))
+          }
+
+          {
+            repos.length === 0 ? (
+              <p class="empty">
+                No <code>github.repo</code> set on any site in{' '}
+                <code>data/sites.json</code>.
+              </p>
+            ) : (
+              <PullRequestList pullRequests={pullRequests} showRepo />
+            )
+          }
+        </div>
+      </>
+    )
+  }
+</Shell>

@@ -1,0 +1,85 @@
+---
+import type { NodeRef } from '../lib/tests/lighthouse';
+
+interface Props {
+  screenshot: { path: string; width: number; height: number };
+  node: NodeRef;
+  /** Widest the crop is allowed to render. */
+  maxWidth?: number;
+}
+
+const { screenshot, node, maxWidth = 300 } = Astro.props;
+
+/*
+ * Crop the element out of Lighthouse's full-page screenshot using CSS alone: the
+ * full image sits inside a clipping box, offset so the element is in view, and a
+ * highlight is drawn over it. No server-side image processing and therefore no
+ * native image dependency.
+ *
+ * The rect MUST be the one from fullPageScreenshot.nodes — it is in screenshot
+ * space. An item's own boundingRect is a different origin and crops the wrong
+ * region.
+ */
+const rect = node.rect;
+
+const PADDING = 28;
+const MAX_CROP_HEIGHT = 340;
+
+const cropLeft = rect ? Math.max(0, rect.left - PADDING) : 0;
+const cropTop = rect ? Math.max(0, rect.top - PADDING) : 0;
+const cropWidth = rect
+  ? Math.min(screenshot.width - cropLeft, rect.width + PADDING * 2)
+  : 0;
+const cropHeight = rect
+  ? Math.min(
+      screenshot.height - cropTop,
+      Math.min(rect.height + PADDING * 2, MAX_CROP_HEIGHT),
+    )
+  : 0;
+
+// Never scale up — a 20px-tall link should not become a blurry banner.
+const scale = cropWidth > 0 ? Math.min(1, maxWidth / cropWidth) : 1;
+
+const boxStyle = [
+  `width:${Math.round(cropWidth * scale)}px`,
+  `height:${Math.round(cropHeight * scale)}px`,
+].join(';');
+
+const imageStyle = [
+  `width:${Math.round(screenshot.width * scale)}px`,
+  `left:${-Math.round(cropLeft * scale)}px`,
+  `top:${-Math.round(cropTop * scale)}px`,
+].join(';');
+
+const highlightStyle = rect
+  ? [
+      `left:${Math.round((rect.left - cropLeft) * scale)}px`,
+      `top:${Math.round((rect.top - cropTop) * scale)}px`,
+      `width:${Math.max(2, Math.round(rect.width * scale))}px`,
+      `height:${Math.max(2, Math.round(rect.height * scale))}px`,
+    ].join(';')
+  : '';
+---
+
+{
+  rect && cropWidth > 0 && cropHeight > 0 && (
+    <figure class="element-shot">
+      <div class="element-shot-box" style={boxStyle}>
+        <img
+          src={`/api/artifacts/${screenshot.path}`}
+          alt={`Screenshot region containing ${node.selector ?? 'the element'}`}
+          style={imageStyle}
+          loading="lazy"
+        />
+        <span class="element-shot-highlight" style={highlightStyle}></span>
+      </div>
+      <figcaption>
+        <a href={`/api/artifacts/${screenshot.path}`} target="_blank" rel="noreferrer">
+          full page
+        </a>
+        {' · '}
+        {Math.round(rect.width)}×{Math.round(rect.height)} at {Math.round(rect.left)},{Math.round(rect.top)}
+      </figcaption>
+    </figure>
+  )
+}

@@ -1,0 +1,88 @@
+---
+import BarList from './BarList.astro';
+import { full } from '../lib/format';
+import type { BreakdownRow } from '../lib/providers/plausible';
+
+interface Props {
+  rows: BreakdownRow[];
+}
+
+const { rows } = Astro.props;
+
+/**
+ * Plausible returns ISO alpha-2 codes for `visit:country`, which is exactly what
+ * a flag emoji is built from: two regional indicator symbols, offset from A.
+ * No image assets and no third-party flag service.
+ */
+const flagFor = (code: string): string => {
+  if (!/^[A-Za-z]{2}$/.test(code)) return '🌐';
+  return String.fromCodePoint(
+    ...[...code.toUpperCase()].map(
+      (letter) => 0x1f1e6 + letter.charCodeAt(0) - 65,
+    ),
+  );
+};
+
+/** Intl knows the country names, so there is no table to maintain. */
+const regionNames = (() => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' });
+  } catch {
+    return undefined;
+  }
+})();
+
+const nameFor = (code: string): string => {
+  if (!/^[A-Za-z]{2}$/.test(code)) return code || 'Unknown';
+  try {
+    return regionNames?.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+};
+
+const entries = rows.map((row) => ({
+  code: row.label,
+  name: nameFor(row.label),
+  flag: flagFor(row.label),
+  visitors: row.visitors,
+}));
+---
+
+{
+  entries.length === 0 ? (
+    <p class="empty">No countries in this range.</p>
+  ) : (
+    <>
+      <ul class="inline-stats">
+        {
+          entries.map((entry) => (
+            <li title={`${entry.name} — ${full(entry.visitors)} visitors`}>
+              <span class="inline-glyph" aria-hidden="true">{entry.flag}</span>
+              <span class="visually-hidden">{entry.name}</span>
+              <span class="inline-value">{full(entry.visitors)}</span>
+            </li>
+          ))
+        }
+      </ul>
+
+      {/*
+        Bars rather than a table: the glyph row above is the summary, and what
+        it can't show is relative size. The values are already plain text up
+        there, so nothing is locked behind this disclosure.
+      */}
+      <details class="table-view">
+        <summary>Compare</summary>
+        <BarList
+          rows={entries.map((entry) => ({
+            label: `${entry.flag} ${entry.name}`,
+            value: entry.visitors,
+          }))}
+          labelHeader="Country"
+          valueHeader="Visitors"
+          showTable={false}
+        />
+      </details>
+    </>
+  )
+}

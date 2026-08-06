@@ -1,0 +1,215 @@
+---
+import '../styles/app.css';
+import AutoRefresh from '../components/AutoRefresh.astro';
+import DemoBanner from '../components/DemoBanner.astro';
+import { envValue } from '../lib/env';
+import { realtimeForSites } from '../lib/providers/plausible';
+import { domainOf, titlesFor } from '../lib/site-meta';
+import { loadRegistry } from '../lib/sites';
+
+interface Props {
+  title: string;
+  activeSlug?: string;
+}
+
+const { title, activeSlug } = Astro.props;
+const { sites, source } = await loadRegistry();
+const path = Astro.url.pathname;
+const isDashboard = path === '/';
+const isSettings = path === '/settings';
+const isAddSite = path === '/sites/new';
+
+/*
+ * Visitors on each site right now. Cached for 20s inside the provider, because
+ * this renders on every page and would otherwise fire one request per site per
+ * navigation. Sites with no analytics simply have no entry.
+ */
+const liveVisitors = await realtimeForSites(sites);
+const liveTotal = [...liveVisitors.values()].reduce((sum, n) => sum + n, 0);
+
+/*
+ * Sidebar labels. Configured names drift — some are hand-written, some derived
+ * from a domain — so the default is the site's own page title, read once and
+ * cached to disk. Domain mode is the consistent alternative when titles are
+ * long or marketing-heavy.
+ */
+const labelMode =
+  envValue('CONTROL_ROOM_SITE_LABELS') === 'domain' ? 'domain' : 'title';
+const siteTitles = labelMode === 'title' ? await titlesFor(sites) : new Map();
+
+const labelFor = (site: (typeof sites)[number]): string =>
+  labelMode === 'domain'
+    ? domainOf(site)
+    : (siteTitles.get(site.slug) ?? site.name);
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · Control Room</title>
+    <link rel="icon" href="/favicon.svg" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!--
+      Applied before first paint so a stored theme choice does not flash the
+      other mode. is:inline keeps it out of the bundle so it runs immediately.
+    -->
+    <script is:inline>
+      const stored = localStorage.getItem('control-room-theme');
+      if (stored === 'dark' || stored === 'light') {
+        document.documentElement.dataset.theme = stored;
+      }
+    </script>
+  </head>
+
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <strong>Control Room</strong>
+        </div>
+
+        {/*
+          Marked as a live region so the visitor counts refresh from the SAME
+          page render as everything else. They used to have their own poller on a
+          different interval, which meant the sidebar and the page body showed
+          numbers captured at different moments.
+        */}
+        <div class="nav-live" data-live-region="sidebar-nav">
+          <nav class="nav-group">
+            <h3>Overview</h3>
+            <ul class="nav-list">
+              <li>
+                <a href="/" aria-current={isDashboard ? 'page' : undefined}>
+                  <span class="nav-name">All sites</span>
+                  {/* Shown whenever any site reports analytics, even at zero —
+                      "nobody on right now" and "no analytics" are different
+                      facts and should not look identical. */}
+                  <span
+                    class="live-count"
+                    data-live-total
+                    hidden={liveVisitors.size === 0}
+                    title={`${liveTotal} visitors across all sites right now`}
+                  >
+                    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                      <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 1.4c-2.8 0-5 1.4-5 3.2V14h10v-1.4c0-1.8-2.2-3.2-5-3.2Z" />
+                    </svg>
+                    <span data-live-value>{liveTotal}</span>
+                  </span>
+                </a>
+              </li>
+            </ul>
+          </nav>
+
+          <nav class="nav-group">
+            <h3>Sites</h3>
+            <ul class="nav-list">
+              {
+                sites.map((site) => (
+                  <li>
+                    <a
+                      href={`/sites/${site.slug}`}
+                      aria-current={activeSlug === site.slug ? 'page' : undefined}
+                    >
+                      <img
+                        class="nav-icon"
+                        src={`/api/favicon/${site.slug}`}
+                        alt=""
+                        width="16"
+                        height="16"
+                        loading="lazy"
+                      />
+                      <span class="nav-name" title={`${labelFor(site)} · ${site.url}`}>
+                        {labelFor(site)}
+                      </span>
+                      <span
+                        class="live-count"
+                        data-live-slug={site.slug}
+                        data-live-name={labelFor(site)}
+                        hidden={!liveVisitors.has(site.slug)}
+                        title={`${liveVisitors.get(site.slug) ?? 0} visitors on ${labelFor(site)} right now`}
+                      >
+                        <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                          <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 1.4c-2.8 0-5 1.4-5 3.2V14h10v-1.4c0-1.8-2.2-3.2-5-3.2Z" />
+                        </svg>
+                        <span data-live-value>{liveVisitors.get(site.slug) ?? 0}</span>
+                      </span>
+                    </a>
+                  </li>
+                ))
+              }
+              <li>
+                <a href="/sites/new" aria-current={isAddSite ? 'page' : undefined}>
+                  + Add a site
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:8px;">
+          <ul class="nav-list">
+            <li>
+              <a href="/settings" aria-current={isSettings ? 'page' : undefined}>
+                <span class="nav-name">Settings</span>
+              </a>
+            </li>
+            <li>
+              {/* POST, not a link: signing out is a state change and should not
+                  be triggerable by a prefetch. */}
+              <form method="POST" action="/api/auth">
+                <input type="hidden" name="action" value="logout" />
+                <button class="nav-action" type="submit">
+                  <span class="nav-name">Sign out</span>
+                </button>
+              </form>
+            </li>
+            <li>
+              {/* Styled as a nav row, not a button: it is a preference, and
+                  should not compete with the navigation for attention. */}
+              <button class="nav-action" type="button" data-theme-toggle>
+                <span class="nav-name">Theme</span>
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="6.3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                  />
+                  <path d="M8 1.7a6.3 6.3 0 0 1 0 12.6Z" fill="currentColor" />
+                </svg>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="main">
+        {source === 'example' && <DemoBanner />}
+        <slot />
+      </main>
+
+      <AutoRefresh />
+    </div>
+
+    <script>
+      // Explicit choice wins over the OS setting, in both directions. Bound
+      // outside any live region, so a refresh never detaches this listener.
+      document
+        .querySelector('[data-theme-toggle]')
+        ?.addEventListener('click', () => {
+          const root = document.documentElement;
+          const current =
+            root.dataset.theme ??
+            (window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light');
+          const next = current === 'dark' ? 'light' : 'dark';
+          root.dataset.theme = next;
+          localStorage.setItem('control-room-theme', next);
+        });
+    </script>
+  </body>
+</html>

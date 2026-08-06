@@ -1,0 +1,160 @@
+---
+import ElementShot from './ElementShot.astro';
+import StatusPill from './StatusPill.astro';
+import type { Tone } from './StatusPill.astro';
+import { renderDescription } from '../lib/markdown';
+import type { Finding, PageAudit } from '../lib/tests/lighthouse';
+
+interface Props {
+  finding: Finding;
+  screenshot: PageAudit['screenshot'];
+}
+
+const { finding, screenshot } = Astro.props;
+
+const tone: Tone =
+  finding.score === null
+    ? 'neutral'
+    : finding.score < 0.5
+      ? 'critical'
+      : finding.score < 0.9
+        ? 'warning'
+        : 'good';
+
+const savings: string[] = [];
+if (finding.savingsMs) savings.push(`saves ~${Math.round(finding.savingsMs)} ms`);
+if (finding.savingsBytes) {
+  savings.push(`saves ~${Math.round(finding.savingsBytes / 1024)} KB`);
+}
+for (const [metric, value] of Object.entries(finding.metricSavings ?? {})) {
+  if (value) savings.push(`${metric} −${Math.round(value)} ms`);
+}
+
+// Rows can carry different keys, so the columns are the union in first-seen order.
+const columns: string[] = [];
+for (const row of finding.rows) {
+  for (const cell of row.cells) {
+    if (!columns.includes(cell.label)) columns.push(cell.label);
+  }
+}
+const valueOf = (row: Finding['rows'][number], label: string) =>
+  row.cells.find((cell) => cell.label === label)?.value ?? '';
+
+const hasTable = columns.length > 0 && finding.rows.length > 0;
+---
+
+<div class="finding">
+  <div class="finding-head">
+    <span class="finding-title">{finding.title}</span>
+    <StatusPill
+      tone={tone}
+      label={
+        finding.score === null
+          ? 'not scored'
+          : `${Math.round(finding.score * 100)}/100`
+      }
+      title={`Audit id: ${finding.id}`}
+    />
+  </div>
+
+  <div class="chips">
+    <span class="chip">{finding.id}</span>
+    {finding.displayValue && <span class="chip">{finding.displayValue}</span>}
+    {savings.map((entry) => <span class="chip">{entry}</span>)}
+  </div>
+
+  {
+    finding.description && (
+      <p class="finding-description" set:html={renderDescription(finding.description)} />
+    )
+  }
+
+  {
+    finding.checklist.length > 0 && (
+      <div class="checks">
+        {
+          finding.checklist.map((item) => (
+            <StatusPill tone={item.passed ? 'good' : 'serious'} label={item.label} />
+          ))
+        }
+      </div>
+    )
+  }
+
+  {
+    hasTable && (
+      <details class="table-view">
+        <summary>
+          {finding.rows.length} item{finding.rows.length === 1 ? '' : 's'}
+          {finding.truncatedRows > 0 && ` (${finding.truncatedRows} more not shown)`}
+        </summary>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>{columns.map((column) => <th>{column}</th>)}</tr>
+            </thead>
+            <tbody>
+              {
+                finding.rows.map((row) => (
+                  <tr>
+                    {columns.map((column) => <td>{valueOf(row, column)}</td>)}
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </details>
+    )
+  }
+
+  {
+    finding.nodes.length > 0 && (
+      <div class="finding-nodes">
+        <h4>
+          {finding.nodes.length} element{finding.nodes.length === 1 ? '' : 's'}
+        </h4>
+        {
+          finding.nodes.map((node) => (
+            <div class="node-detail">
+              {
+                screenshot && node.rect && (
+                  <ElementShot screenshot={screenshot} node={node} />
+                )
+              }
+              <div class="node-facts">
+                {
+                  node.selector && (
+                    <p><span class="node-key">selector</span><code>{node.selector}</code></p>
+                  )
+                }
+                {
+                  node.explanation && (
+                    <p><span class="node-key">why</span><span>{node.explanation}</span></p>
+                  )
+                }
+                {
+                  node.snippet && (
+                    <p><span class="node-key">html</span><code>{node.snippet}</code></p>
+                  )
+                }
+                {
+                  node.label && !node.explanation && (
+                    <p><span class="node-key">content</span><span>{node.label}</span></p>
+                  )
+                }
+                {
+                  !screenshot && (
+                    <p class="node-key">
+                      No screenshot captured for this page, so no element preview.
+                    </p>
+                  )
+                }
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    )
+  }
+</div>

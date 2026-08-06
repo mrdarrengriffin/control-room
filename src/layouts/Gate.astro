@@ -1,0 +1,41 @@
+---
+import '../styles/app.css';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!--
+  A bare shell for login and first-run setup. Deliberately not the main Shell:
+  that renders the site list and fetches analytics, none of which should happen
+  for someone who is not signed in.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · Control Room</title>
+    <link rel="icon" href="/favicon.svg" />
+    <meta name="robots" content="noindex, nofollow" />
+    <script is:inline>
+      const stored = localStorage.getItem('control-room-theme');
+      if (stored === 'dark' || stored === 'light') {
+        document.documentElement.dataset.theme = stored;
+      }
+    </script>
+  </head>
+
+  <body>
+    <div class="gate">
+      <div class="gate-card">
+        <div class="brand" style="margin-bottom:14px">
+          <strong>Control Room</strong>
+        </div>
+        <slot />
+      </div>
+    </div>
+  </body>
+</html>

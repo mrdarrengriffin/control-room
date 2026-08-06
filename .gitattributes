@@ -1,0 +1,8 @@
+# This repo is edited on Windows but everything runs in a Linux container.
+# Shell scripts must keep LF endings or the kernel reads the CRLF as part of the
+# interpreter path and the container dies with "bad interpreter: no such file".
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+Dockerfile text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf

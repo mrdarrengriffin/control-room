@@ -1,0 +1,198 @@
+---
+import { VIEWPORTS } from '../lib/tests/browser';
+import { CATEGORIES, CATEGORY_LABELS } from '../lib/tests/lighthouse';
+import type { Site } from '../lib/types';
+
+interface Props {
+  site: Site;
+}
+
+const { site } = Astro.props;
+
+const testPages = site.testPages ?? ['/'];
+const interactivePages = site.interactivePages ?? [];
+const hasInteractive = interactivePages.length > 0;
+
+const viewportKeys = Object.keys(VIEWPORTS) as (keyof typeof VIEWPORTS)[];
+---
+
+<div class="test-grid">
+  <form class="test-form" method="POST" action="/api/tests/run">
+    <input type="hidden" name="slug" value={site.slug} />
+    <input type="hidden" name="kind" value="audit" />
+    <h3>Lighthouse audit</h3>
+    <p class="note">Pick the categories you want; each is scored separately.</p>
+
+    <div class="check-row">
+      {
+        CATEGORIES.map((category) => (
+          <label class="check">
+            <input type="checkbox" name="categories" value={category} checked />
+            {CATEGORY_LABELS[category]}
+          </label>
+        ))
+      }
+    </div>
+
+    <div class="field">
+      <label for={`ff-${site.slug}`}>Form factor</label>
+      <select id={`ff-${site.slug}`} name="formFactor">
+        <option value="desktop">Desktop</option>
+        <option value="mobile">Mobile (throttled, Lighthouse default)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for={`ap-${site.slug}`}>Pages</label>
+      <select id={`ap-${site.slug}`} name="pages">
+        <option value="all">All test pages ({testPages.length})</option>
+        {testPages.map((page) => <option value={page}>{page}</option>)}
+      </select>
+    </div>
+
+    <label class="check">
+      {/* Off by default: streaming frames is real work for the browser and can
+          move performance timings. The log is the useful live signal here. */}
+      <input type="checkbox" name="watch" />
+      Watch live <span style="color:var(--ink-muted)">(may shift perf scores)</span>
+    </label>
+
+    <div class="spacer"></div>
+    <button class="button is-primary" type="submit">Run audit</button>
+  </form>
+
+  <form class="test-form" method="POST" action="/api/tests/run">
+    <input type="hidden" name="slug" value={site.slug} />
+    <input type="hidden" name="kind" value="capture" />
+    <h3>Screenshots</h3>
+    <p class="note">
+      Full-page, after scrolling once to trigger lazy-loaded images.
+    </p>
+
+    <div class="check-row">
+      {
+        viewportKeys.map((key) => (
+          <label class="check">
+            <input type="checkbox" name="viewports" value={key} checked />
+            {VIEWPORTS[key].label} ({VIEWPORTS[key].width}×{VIEWPORTS[key].height})
+          </label>
+        ))
+      }
+    </div>
+
+    <div class="field">
+      <label for={`cp-${site.slug}`}>Pages</label>
+      <select id={`cp-${site.slug}`} name="pages">
+        <option value="all">All test pages ({testPages.length})</option>
+        {testPages.map((page) => <option value={page}>{page}</option>)}
+      </select>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="watch" checked />
+      Watch live
+    </label>
+
+    <div class="spacer"></div>
+    <button class="button is-primary" type="submit">Capture screenshots</button>
+  </form>
+
+  <form class="test-form" method="POST" action="/api/tests/run">
+    <input type="hidden" name="slug" value={site.slug} />
+    <input type="hidden" name="kind" value="video" />
+    <h3>Scroll-through video</h3>
+    <p class="note">One page per video, scrolled top to bottom. WebM.</p>
+
+    <div class="field">
+      <label for={`vv-${site.slug}`}>Viewport</label>
+      <select id={`vv-${site.slug}`} name="viewports">
+        {
+          viewportKeys.map((key) => (
+            <option value={key}>{VIEWPORTS[key].label}</option>
+          ))
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for={`vp-${site.slug}`}>Page</label>
+      <select id={`vp-${site.slug}`} name="pages">
+        {testPages.map((page) => <option value={page}>{page}</option>)}
+        {
+          hasInteractive &&
+            interactivePages.map((page) => (
+              <option value={page}>{page} (interactive)</option>
+            ))
+        }
+      </select>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="watch" checked />
+      Watch live
+    </label>
+
+    <div class="spacer"></div>
+    <button class="button is-primary" type="submit">Record video</button>
+  </form>
+
+  <form class="test-form" method="POST" action="/api/tests/run">
+    <input type="hidden" name="slug" value={site.slug} />
+    <input type="hidden" name="kind" value="interaction" />
+    <h3>Scroll performance</h3>
+    <p class="note">
+      Frame timing and main-thread blocking during scroll — for the image-sequence
+      sections. Blocking is the reliable signal; frame rate in headless is
+      indicative only.
+    </p>
+
+    <div class="field">
+      <label for={`iv-${site.slug}`}>Viewport</label>
+      <select id={`iv-${site.slug}`} name="viewports">
+        {
+          viewportKeys.map((key) => (
+            <option value={key}>{VIEWPORTS[key].label}</option>
+          ))
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for={`ip-${site.slug}`}>Pages</label>
+      <select id={`ip-${site.slug}`} name="pages">
+        {
+          hasInteractive && (
+            <option value="interactive">
+              Interactive pages ({interactivePages.length})
+            </option>
+          )
+        }
+        <option value="all">All test pages ({testPages.length})</option>
+        {testPages.map((page) => <option value={page}>{page}</option>)}
+        {
+          interactivePages.map((page) => (
+            <option value={page}>{page} (interactive)</option>
+          ))
+        }
+      </select>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="watch" />
+      Watch live <span style="color:var(--ink-muted)">(adds browser work)</span>
+    </label>
+
+    <div class="spacer"></div>
+    <button class="button is-primary" type="submit">Measure scrolling</button>
+  </form>
+</div>
+
+{
+  !hasInteractive && (
+    <p class="note" style="margin-top:10px; color:var(--ink-muted); font-size:12px">
+      Tip: add <code>interactivePages</code> for this site in{' '}
+      <code>data/sites.json</code> to point the scroll test straight at the
+      image-sequence pages.
+    </p>
+  )
+}

@@ -1,0 +1,41 @@
+---
+import Gate from '../layouts/Gate.astro';
+import { isAuthenticated, isConfigured } from '../lib/auth';
+
+if (!isConfigured()) {
+  return Astro.redirect('/setup', 303);
+}
+
+// Already signed in — no reason to show a login form.
+if (isAuthenticated(Astro.request)) {
+  return Astro.redirect('/', 303);
+}
+
+const error = Astro.url.searchParams.get('error');
+const next = Astro.url.searchParams.get('next') ?? '/';
+---
+
+<Gate title="Sign in">
+  <h1>Sign in</h1>
+
+  {error && <p class="flash is-error">{error}</p>}
+
+  <form method="POST" action="/api/auth">
+    <input type="hidden" name="action" value="login" />
+    <input type="hidden" name="next" value={next} />
+
+    <div class="field">
+      <label for="password">Password</label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        autocomplete="current-password"
+        required
+        autofocus
+      />
+    </div>
+
+    <button class="button is-primary" type="submit">Sign in</button>
+  </form>
+</Gate>

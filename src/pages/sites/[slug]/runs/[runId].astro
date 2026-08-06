@@ -1,0 +1,207 @@
+---
+import Shell from '../../../../layouts/Shell.astro';
+import FindingCard from '../../../../components/FindingCard.astro';
+import LcpPanel from '../../../../components/LcpPanel.astro';
+import StatTile from '../../../../components/StatTile.astro';
+import StatusPill from '../../../../components/StatusPill.astro';
+import type { Tone } from '../../../../components/StatusPill.astro';
+import { duration as formatDuration, exactTime, relativeTime } from '../../../../lib/format';
+import { findSite } from '../../../../lib/sites';
+import { getRun } from '../../../../lib/store';
+import { CATEGORIES, CATEGORY_LABELS } from '../../../../lib/tests/lighthouse';
+import type { Category, PageAudit } from '../../../../lib/tests/lighthouse';
+import type { RunStatus } from '../../../../lib/types';
+
+const { slug, runId } = Astro.params;
+const site = slug ? await findSite(slug) : undefined;
+if (!site) {
+  return new Response(`No site "${slug}" in data/sites.json`, { status: 404 });
+}
+
+const run = runId ? await getRun(site.slug, runId) : undefined;
+if (!run) {
+  return new Response(`No run "${runId}" for ${site.name}`, { status: 404 });
+}
+
+const TONES: Record<RunStatus, Tone> = {
+  passed: 'good',
+  failed: 'serious',
+  error: 'critical',
+  running: 'warning',
+  queued: 'neutral',
+};
+
+const detail = run.detail as { pages?: PageAudit[] } | undefined;
+const pages =
+  run.kind === 'audit' && Array.isArray(detail?.pages) ? detail.pages : [];
+
+const scoreTone = (score: number | undefined): Tone =>
+  score === undefined
+    ? 'neutral'
+    : score >= 90
+      ? 'good'
+      : score >= 50
+        ? 'warning'
+        : 'critical';
+
+const ms = (value: number | undefined): string =>
+  value === undefined ? '—' : `${Math.round(value)} ms`;
+
+const pathOf = (url: string): string => {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+};
+
+/** Findings grouped by category, in the canonical category order. */
+const groupFindings = (page: PageAudit) =>
+  CATEGORIES.map((category) => ({
+    category,
+    findings: page.findings.filter((finding) => finding.category === category),
+  })).filter((group) => group.findings.length > 0);
+---
+
+<Shell title={`${run.label} · ${site.name}`} activeSlug={site.slug}>
+  <div class="page-head">
+    <div>
+      <h1>{run.label}</h1>
+      <p>
+        <a href={`/sites/${site.slug}#tests`}>← {site.name}</a>
+        {' · '}
+        <span title={exactTime(run.startedAt)}>{relativeTime(run.startedAt)}</span>
+        {
+          run.durationMs !== undefined && (
+            <> · took {formatDuration(run.durationMs / 1000)}</>
+          )
+        }
+      </p>
+    </div>
+    <StatusPill tone={TONES[run.status]} label={run.status} />
+  </div>
+
+  {
+    run.error && (
+      <p class="panel-note is-error">
+        <span aria-hidden="true">×</span>
+        <span>{run.error}</span>
+      </p>
+    )
+  }
+
+  {
+    pages.length === 0 && (
+      <div class="card">
+        <h2>No audit detail</h2>
+        <p class="empty">
+          {
+            run.kind === 'audit'
+              ? 'This run stored no per-page detail — it may predate the deep-dive extraction, or it failed before the first page finished.'
+              : `This is a ${run.kind} run. The deep dive covers Lighthouse audits; see the runs list on the site page for its artifacts.`
+          }
+        </p>
+      </div>
+    )
+  }
+
+  {
+    pages.map((page) => (
+      <>
+        <div class="card">
+          <div class="card-head">
+            <h2>{pathOf(page.url)}</h2>
+            <span class="hint">
+              <a href={page.finalUrl ?? page.url} rel="noreferrer">open page</a>
+            </span>
+          </div>
+
+          <div class="grid grid-4">
+            {
+              page.scores.map((score) => (
+                <div class="stat">
+                  <span class="stat-label">{score.label}</span>
+                  <span class="stat-value">{score.score ?? '—'}</span>
+                  <span class="stat-sub">
+                    <StatusPill
+                      tone={scoreTone(score.score)}
+                      label={
+                        score.score === undefined
+                          ? 'not scored'
+                          : score.score >= 90
+                            ? 'good'
+                            : score.score >= 50
+                              ? 'needs work'
+                              : 'poor'
+                      }
+                    />
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+
+          <div class="grid grid-4" style="margin-top:16px">
+            <StatTile label="FCP" value={ms(page.metrics.fcp)} />
+            <StatTile label="LCP" value={ms(page.metrics.lcp)} />
+            <StatTile label="TBT" value={ms(page.metrics.tbt)} />
+            <StatTile
+              label="CLS"
+              value={
+                page.metrics.cls === undefined
+                  ? '—'
+                  : page.metrics.cls.toFixed(3)
+              }
+            />
+            <StatTile label="Speed Index" value={ms(page.metrics.si)} />
+            <StatTile label="Time to interactive" value={ms(page.metrics.tti)} />
+          </div>
+        </div>
+
+        {page.lcp && <LcpPanel lcp={page.lcp} screenshot={page.screenshot} />}
+
+        {
+          groupFindings(page).map((group) => (
+            <div class="card">
+              <div class="card-head">
+                <h2>{CATEGORY_LABELS[group.category as Category]}</h2>
+                <span class="hint">
+                  {group.findings.length} finding{group.findings.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div class="findings">
+                {
+                  group.findings.map((finding) => (
+                    <FindingCard finding={finding} screenshot={page.screenshot} />
+                  ))
+                }
+              </div>
+            </div>
+          ))
+        }
+
+        {
+          page.findings.length === 0 && (
+            <div class="card">
+              <p class="empty">
+                Nothing scored below 90 on {pathOf(page.url)} for the selected
+                categories.
+              </p>
+            </div>
+          )
+        }
+      </>
+    ))
+  }
+
+  {
+    run.log && run.log.length > 0 && (
+      <div class="card">
+        <div class="card-head">
+          <h2>Log</h2>
+        </div>
+        <pre class="run-log">{run.log.join('\n')}</pre>
+      </div>
+    )
+  }
+</Shell>

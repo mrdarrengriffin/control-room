@@ -1,0 +1,305 @@
+---
+import Shell from '../../../layouts/Shell.astro';
+import StatusPill from '../../../components/StatusPill.astro';
+import type { Tone } from '../../../components/StatusPill.astro';
+import { discoverSite } from '../../../lib/discover';
+import type { Discovery, FindingStatus } from '../../../lib/discover';
+import { loadRegistry } from '../../../lib/sites';
+import { messageOf } from '../../../lib/types';
+
+const { slug } = Astro.params;
+const { sites } = await loadRegistry();
+const site = slug ? sites.find((entry) => entry.slug === slug) : undefined;
+
+if (!site) {
+  return new Response(`No site "${slug}" in data/sites.json`, { status: 404 });
+}
+
+const params = Astro.url.searchParams;
+const flash = params.get('flash');
+const flashMessage = params.get('message');
+
+/*
+ * Re-running discovery is the point of this page for a half-configured site:
+ * "I forgot the GitHub repo" is answered by asking the services again. It only
+ * runs when requested, since it makes outbound calls.
+ */
+const wantsDiscovery = params.get('discover') === '1';
+let discovery: Discovery | undefined;
+let discoveryError: string | undefined;
+
+if (wantsDiscovery) {
+  try {
+    discovery = await discoverSite(site.url);
+  } catch (error) {
+    discoveryError = messageOf(error);
+  }
+}
+
+/** Discovered values only fill fields that are currently empty. */
+const prefill = (current: string | undefined, found: string | undefined) =>
+  current && current !== '' ? current : (found ?? '');
+
+const discoverHref = (() => {
+  const next = new URL(Astro.url);
+  next.searchParams.set('discover', '1');
+  next.searchParams.delete('flash');
+  next.searchParams.delete('message');
+  return `${next.pathname}${next.search}`;
+})();
+
+const TONES: Record<FindingStatus, Tone> = {
+  found: 'good',
+  'not-found': 'neutral',
+  unavailable: 'warning',
+};
+
+const netlifyEnabled = site.netlify?.enabled !== false;
+---
+
+<Shell title={`Edit ${site.name}`} activeSlug={site.slug}>
+  <div class="page-head">
+    <div>
+      <h1>Edit {site.name}</h1>
+      <p>
+        <a href={`/sites/${site.slug}`}>← back to {site.name}</a>
+      </p>
+    </div>
+    <a class="button" href={discoverHref}>Look up missing details</a>
+  </div>
+
+  {
+    flash && flashMessage && (
+      <p class={`flash ${flash === 'ok' ? 'is-ok' : 'is-error'}`}>{flashMessage}</p>
+    )
+  }
+
+  {
+    discoveryError && (
+      <p class="panel-note is-error">
+        <span aria-hidden="true">×</span>
+        <span>{discoveryError}</span>
+      </p>
+    )
+  }
+
+  {
+    discovery && (
+      <div class="card">
+        <div class="card-head">
+          <h2>Lookup results</h2>
+          <span class="hint">Only empty fields below were filled in</span>
+        </div>
+        <div class="record-list">
+          {
+            [
+              { name: 'Cloudflare', finding: discovery.cloudflare },
+              { name: 'Netlify', finding: discovery.netlify },
+              { name: 'Plausible', finding: discovery.plausible },
+              { name: 'GitHub', finding: discovery.github },
+            ].map((row) => (
+              <div class="record">
+                <div class="record-main">
+                  <span class="record-title">{row.name}</span>
+                  <div class="record-meta"><span>{row.finding.detail}</span></div>
+                </div>
+                <StatusPill
+                  tone={TONES[row.finding.status]}
+                  label={row.finding.status === 'found' ? 'found' : row.finding.status === 'unavailable' ? 'not connected' : 'not found'}
+                />
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    )
+  }
+
+  <form method="POST" action="/api/sites/update">
+    <input type="hidden" name="slug" value={site.slug} />
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Identity</h2>
+        <span class="hint">Slug is fixed — run history is stored under it</span>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" id="name" name="name" value={site.name} />
+        </div>
+        <div class="field">
+          <label for="url">URL</label>
+          <input type="text" id="url" name="url" value={site.url} />
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="description">Description</label>
+          <input
+            type="text"
+            id="description"
+            name="description"
+            value={site.description ?? ''}
+          />
+        </div>
+        <div class="field">
+          <label for="tags">Tags — comma separated</label>
+          <input type="text" id="tags" name="tags" value={(site.tags ?? []).join(', ')} />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Integrations</h2>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="cloudflareZoneId">Cloudflare zone id</label>
+          <input
+            type="text"
+            id="cloudflareZoneId"
+            name="cloudflareZoneId"
+            value={prefill(site.cloudflare?.zoneId, discovery?.cloudflare.value?.zoneId)}
+            placeholder="Blank disables cache purging"
+          />
+        </div>
+        <div class="field">
+          <label for="githubRepo">GitHub repository</label>
+          <input
+            type="text"
+            id="githubRepo"
+            name="githubRepo"
+            value={prefill(site.github?.repo, discovery?.github.value?.repo)}
+            placeholder="owner/repo"
+          />
+          {
+            discovery && discovery.githubCandidates.length > 0 && (
+              <span class="setting-hint">
+                Other matches: {discovery.githubCandidates.join(', ')}
+              </span>
+            )
+          }
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="check">
+          <input
+            type="checkbox"
+            name="netlifyEnabled"
+            checked={netlifyEnabled}
+          />
+          Deployed on Netlify
+        </label>
+        <span class="setting-hint">
+          Untick for sites that are not on Netlify — the deploys panel is then
+          hidden rather than reporting a miss.
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="netlifySiteId">Netlify site id — optional</label>
+        <input
+          type="text"
+          id="netlifySiteId"
+          name="netlifySiteId"
+          value={site.netlify?.siteId ?? ''}
+          placeholder="Blank — matched by domain, and verified to serve it"
+        />
+      </div>
+
+      <div class="grid grid-3">
+        <div class="field">
+          <label for="plausibleDomain">Plausible domain</label>
+          <input
+            type="text"
+            id="plausibleDomain"
+            name="plausibleDomain"
+            value={prefill(site.plausible?.domain, discovery?.plausible.value?.domain)}
+            placeholder="Blank disables analytics"
+          />
+        </div>
+        <div class="field">
+          <label for="plausibleBaseUrl">Plausible instance</label>
+          <input
+            type="text"
+            id="plausibleBaseUrl"
+            name="plausibleBaseUrl"
+            value={prefill(site.plausible?.baseUrl, discovery?.plausible.value?.baseUrl)}
+            placeholder="Blank = default instance"
+          />
+        </div>
+        <div class="field">
+          <label for="plausibleKeyEnv">Plausible key variable</label>
+          <input
+            type="text"
+            id="plausibleKeyEnv"
+            name="plausibleKeyEnv"
+            value={prefill(site.plausible?.keyEnv, discovery?.plausible.value?.keyEnv)}
+            placeholder="Blank = PLAUSIBLE_API_KEY"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Pages</h2>
+        <span class="hint">
+          <a href={`/sites/${site.slug}#pages`}>Suggestions live on the site page</a>
+        </span>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="testPages">Test pages — one path per line</label>
+          <textarea id="testPages" name="testPages" rows="7"
+            >{(site.testPages ?? ['/']).join('\n')}</textarea
+          >
+        </div>
+        <div class="field">
+          <label for="interactivePages">Interactive pages</label>
+          <textarea id="interactivePages" name="interactivePages" rows="7"
+            >{(site.interactivePages ?? []).join('\n')}</textarea
+          >
+        </div>
+      </div>
+
+      <button class="button is-primary" type="submit">Save changes</button>
+    </div>
+  </form>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Remove this site</h2>
+    </div>
+    <p class="finding-description">
+      Removes it from the registry only. Saved runs and captured artifacts under
+      <code>data/</code> are kept.
+    </p>
+    <form
+      method="POST"
+      action="/api/sites/update"
+      data-confirm={`Remove ${site.name} from the registry?`}
+    >
+      <input type="hidden" name="slug" value={site.slug} />
+      <input type="hidden" name="action" value="delete" />
+      <button class="button is-danger" type="submit">Remove site</button>
+    </form>
+  </div>
+</Shell>
+
+<script>
+  document.querySelectorAll('form[data-confirm]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      if (!window.confirm(form.getAttribute('data-confirm') ?? 'Are you sure?')) {
+        event.preventDefault();
+      }
+    });
+  });
+</script>

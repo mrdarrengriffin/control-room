@@ -1,0 +1,117 @@
+---
+/**
+ * Keeps everything on the page current, from a single fetch.
+ *
+ * Any element marked `data-live-region="<name>"` is periodically replaced with
+ * the same region from a fresh render of the current URL — including the
+ * sidebar. One fetch for the whole page is deliberate: separate timers for the
+ * sidebar and the page body meant the two showed numbers captured at different
+ * moments. Refreshing from one render makes them consistent by construction
+ * rather than by coordination.
+ *
+ * Re-fetching the page rather than exposing JSON endpoints also means there is
+ * exactly one copy of the rendering logic, and with the SWR cache in front of
+ * the providers a refresh costs about 150ms server-side.
+ */
+---
+
+<script>
+  const REFRESH_MS = 20_000;
+
+  /** Current value of every visitor badge inside a region, keyed by site. */
+  const readCounts = (root) => {
+    const counts = new Map();
+    for (const badge of root.querySelectorAll('[data-live-slug], [data-live-total]')) {
+      const key = badge.dataset.liveSlug ?? '__total__';
+      counts.set(key, {
+        value: badge.querySelector('[data-live-value]')?.textContent ?? null,
+        hidden: badge.hidden,
+      });
+    }
+    return counts;
+  };
+
+  /** Re-apply the change flash to badges whose number actually moved. */
+  const flashChanged = (root, before) => {
+    for (const badge of root.querySelectorAll('[data-live-slug], [data-live-total]')) {
+      const key = badge.dataset.liveSlug ?? '__total__';
+      const previous = before.get(key);
+      if (!previous || badge.hidden) continue;
+
+      const now = badge.querySelector('[data-live-value]')?.textContent ?? null;
+      if (previous.hidden || previous.value === now) continue;
+
+      badge.classList.remove('is-changed');
+      // The reflow is what restarts the animation; removing the class is not
+      // enough on its own.
+      void badge.offsetWidth;
+      badge.classList.add('is-changed');
+    }
+  };
+
+  /**
+   * Replace a region, but only when it is worth doing. Swapping identical markup
+   * would collapse open <details> for no reason, and swapping under someone's
+   * cursor would yank what they are reading.
+   */
+  const swapRegion = (current, fresh) => {
+    if (current.innerHTML === fresh.innerHTML) return;
+    if (current.contains(document.activeElement)) return;
+
+    const countsBefore = readCounts(current);
+    const wasOpen = [...current.querySelectorAll('details')].map(
+      (details) => details.open,
+    );
+
+    current.innerHTML = fresh.innerHTML;
+
+    // Restore disclosure state positionally — same render, so indexes align.
+    current.querySelectorAll('details').forEach((element, index) => {
+      if (wasOpen[index]) element.open = true;
+    });
+
+    flashChanged(current, countsBefore);
+  };
+
+  const refreshRegions = async () => {
+    const regions = document.querySelectorAll('[data-live-region]');
+    if (regions.length === 0) return;
+
+    try {
+      const url = new URL(location.href);
+      // One-shot params must not be replayed: flash messages would reappear, and
+      // sitemap/discover would re-run expensive lookups every 20 seconds.
+      for (const param of ['flash', 'message', 'sitemap', 'discover']) {
+        url.searchParams.delete(param);
+      }
+
+      const response = await fetch(url, { headers: { Accept: 'text/html' } });
+      if (!response.ok) return;
+
+      const parsed = new DOMParser().parseFromString(
+        await response.text(),
+        'text/html',
+      );
+
+      for (const region of regions) {
+        const name = region.dataset.liveRegion;
+        if (!name) continue;
+        const fresh = parsed.querySelector(`[data-live-region="${name}"]`);
+        if (fresh) swapRegion(region, fresh);
+      }
+    } catch {
+      // Transient failure; the next tick tries again.
+    }
+  };
+
+  let timer = setInterval(refreshRegions, REFRESH_MS);
+
+  // No point refreshing a tab nobody is looking at; catch up on return.
+  document.addEventListener('visibilitychange', () => {
+    clearInterval(timer);
+    if (!document.hidden) {
+      void refreshRegions();
+      timer = setInterval(refreshRegions, REFRESH_MS);
+    }
+  });
+</script>

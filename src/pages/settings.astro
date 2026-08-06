@@ -1,0 +1,245 @@
+---
+import Shell from '../layouts/Shell.astro';
+import StatusPill from '../components/StatusPill.astro';
+import type { Tone } from '../components/StatusPill.astro';
+import { verifyToken as verifyCloudflare } from '../lib/providers/cloudflare';
+import { whoami as verifyGithub } from '../lib/providers/github';
+import { verifyToken as verifyNetlify } from '../lib/providers/netlify';
+import { summary as plausibleSummary } from '../lib/providers/plausible';
+import { serviceStatuses } from '../lib/secrets';
+import { loadRegistry } from '../lib/sites';
+import type { ConfigSource } from '../lib/env';
+import type { PanelResult } from '../lib/types';
+
+const params = Astro.url.searchParams;
+const flash = params.get('flash');
+const flashMessage = params.get('message');
+const testing = params.get('test');
+
+const services = await serviceStatuses();
+
+/**
+ * Run a live credential check for one service. Done during render off a query
+ * param rather than via fetch, so it works with JavaScript disabled and the
+ * result is a plain page you can link to.
+ */
+const runTest = async (id: string): Promise<PanelResult<string>> => {
+  if (id === 'cloudflare') {
+    const result = await verifyCloudflare();
+    return result.status === 'ok'
+      ? { status: 'ok', data: `Token active (${result.data.status})` }
+      : result;
+  }
+
+  if (id === 'netlify') {
+    const result = await verifyNetlify();
+    return result.status === 'ok'
+      ? { status: 'ok', data: `Authenticated as ${result.data.name}` }
+      : result;
+  }
+
+  if (id === 'github') {
+    const result = await verifyGithub();
+    return result.status === 'ok'
+      ? { status: 'ok', data: `Authenticated as ${result.data.login}` }
+      : result;
+  }
+
+  if (id === 'plausible') {
+    // Plausible has no "whoami", so the only real check is reading a site.
+    const { sites } = await loadRegistry();
+    const candidate = sites.find((site) => site.plausible?.domain);
+    if (!candidate) {
+      return {
+        status: 'unconfigured',
+        reason: 'Add a site first — the key can only be checked by reading one.',
+      };
+    }
+    const result = await plausibleSummary(candidate, '7d');
+    return result.status === 'ok'
+      ? {
+          status: 'ok',
+          data: `Read ${candidate.plausible?.domain} — ${result.data.visitors} visitors in 7 days`,
+        }
+      : result;
+  }
+
+  return { status: 'error', reason: `Unknown service "${id}"` };
+};
+
+const testResult = testing ? await runTest(testing) : undefined;
+
+const SOURCE_LABELS: Record<ConfigSource, string> = {
+  settings: 'saved here',
+  environment: 'environment',
+  'env-file': '.env file',
+  unset: 'not set',
+};
+
+const testHref = (id: string) => {
+  const next = new URL(Astro.url);
+  next.searchParams.set('test', id);
+  next.searchParams.delete('flash');
+  next.searchParams.delete('message');
+  return `${next.pathname}${next.search}`;
+};
+---
+
+<Shell title="Settings">
+  <div class="page-head">
+    <div>
+      <h1>Settings</h1>
+      <p>
+        Connect the services this dashboard reads from. Everything stays on this
+        machine.
+      </p>
+    </div>
+  </div>
+
+  {
+    flash && flashMessage && (
+      <p class={`flash ${flash === 'ok' ? 'is-ok' : 'is-error'}`}>{flashMessage}</p>
+    )
+  }
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Where values are stored</h2>
+    </div>
+    <p class="finding-description">
+      Anything saved here is written to <code>data/secrets.json</code>, which is
+      gitignored and never leaves this machine. It is written there rather
+      than{' '}<code>.env</code>{' '}so that hand-written comments in your{' '}
+      <code>.env</code>{' '}survive.
+    </p>
+    <p class="finding-description">
+      Three sources are consulted, highest priority first: <strong>saved
+      here</strong>, then <strong>environment</strong> variables from Docker, then
+      the <strong>.env file</strong>. Each field below says which one is actually
+      in effect, so nothing is ambiguous. Saved values take effect immediately —
+      no restart.
+    </p>
+  </div>
+
+  {
+    services.map((service) => (
+      <div class="card">
+        <div class="card-head">
+          <h2>{service.name}</h2>
+          {
+            /* Only credential groups have a connection state to report. */
+            service.fields.some((field) => field.secret) && (
+              <StatusPill
+                tone={(service.configured ? 'good' : 'neutral') as Tone}
+                label={service.configured ? 'connected' : 'not connected'}
+              />
+            )
+          }
+        </div>
+
+        <p class="finding-description">{service.what}</p>
+        <p class="finding-description" style="color:var(--ink-muted)">
+          {service.where}
+        </p>
+
+        {
+          service.fields.map((field) => (
+            <div class="setting-field">
+              <div class="setting-head">
+                <strong>{field.label}</strong>
+                <code class="setting-key">{field.key}</code>
+                <span class="tag">
+                  {SOURCE_LABELS[field.source]}
+                  {
+                    field.secret && field.source !== 'unset'
+                      ? ` · ${field.length} chars`
+                      : ''
+                  }
+                </span>
+              </div>
+
+              <p class="setting-hint">{field.hint}</p>
+
+              <form method="POST" action="/api/settings" class="setting-form">
+                <input type="hidden" name="key" value={field.key} />
+                <input type="hidden" name="action" value="save" />
+                {
+                  field.choices ? (
+                    <select name="value">
+                      {
+                        field.choices.map((choice) => (
+                          <option
+                            value={choice.value}
+                            selected={choice.value === field.value}
+                          >
+                            {choice.label}
+                          </option>
+                        ))
+                      }
+                    </select>
+                  ) : field.secret ? (
+                    <input
+                      type="password"
+                      name="value"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder={
+                        field.source === 'unset'
+                          ? 'Paste token'
+                          : 'Paste a new token to replace it'
+                      }
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      name="value"
+                      autocomplete="off"
+                      spellcheck="false"
+                      value={field.value ?? ''}
+                      placeholder={field.placeholder}
+                    />
+                  )
+                }
+                <button class="button is-primary" type="submit">Save</button>
+              </form>
+
+              {
+                field.source === 'settings' && (
+                  <form method="POST" action="/api/settings" class="setting-form">
+                    <input type="hidden" name="key" value={field.key} />
+                    <input type="hidden" name="action" value="clear" />
+                    <button class="button" type="submit">
+                      Clear saved value
+                    </button>
+                  </form>
+                )
+              }
+            </div>
+          ))
+        }
+
+        <div class="button-row" style="margin-top:12px">
+          {
+            service.fields.some((field) => field.secret) && (
+              <a class="button" href={testHref(service.id)}>Test connection</a>
+            )
+          }
+          {
+            testing === service.id && testResult && (
+              <span
+                class={`flash ${testResult.status === 'ok' ? 'is-ok' : 'is-error'}`}
+                style="padding:6px 10px"
+              >
+                {
+                  testResult.status === 'ok'
+                    ? testResult.data
+                    : testResult.reason
+                }
+              </span>
+            )
+          }
+        </div>
+      </div>
+    ))
+  }
+</Shell>

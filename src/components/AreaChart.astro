@@ -1,0 +1,250 @@
+---
+import { bucketLabel, full, niceMax } from '../lib/format';
+
+interface Props {
+  points: { label: string; value: number }[];
+  /** Named in the card title, which is why there is no legend box. */
+  seriesName: string;
+  /** Extra columns carried by the table view only. */
+  extraColumns?: { header: string; values: (string | number)[] }[];
+}
+
+const { points, seriesName, extraColumns = [] } = Astro.props;
+
+/*
+ * Single series, so: area at ~10% opacity, a 2px line, one end-dot with a 2px
+ * surface ring, and exactly one direct label at the endpoint. No legend — the
+ * card title says what is plotted. The viewBox includes the x-axis band so the
+ * labels can never be cropped by a fixed container height.
+ */
+const W = 720;
+const H = 200;
+const PAD = { top: 12, right: 54, bottom: 26, left: 46 };
+const plotW = W - PAD.left - PAD.right;
+const plotH = H - PAD.top - PAD.bottom;
+const baseline = PAD.top + plotH;
+
+const max = niceMax(Math.max(1, ...points.map((point) => point.value)));
+
+const xAt = (index: number) =>
+  points.length <= 1
+    ? PAD.left + plotW / 2
+    : PAD.left + (index / (points.length - 1)) * plotW;
+
+const yAt = (value: number) => baseline - (value / max) * plotH;
+
+const coords = points.map((point, index) => ({
+  ...point,
+  display: bucketLabel(point.label),
+  x: xAt(index),
+  y: yAt(point.value),
+}));
+
+const round = (value: number) => value.toFixed(1);
+
+const linePath = coords
+  .map((c, i) => `${i === 0 ? 'M' : 'L'}${round(c.x)},${round(c.y)}`)
+  .join(' ');
+
+const areaPath =
+  coords.length > 0
+    ? [
+        `M${round(coords[0].x)},${round(baseline)}`,
+        ...coords.map((c) => `L${round(c.x)},${round(c.y)}`),
+        `L${round(coords[coords.length - 1].x)},${round(baseline)}`,
+        'Z',
+      ].join(' ')
+    : '';
+
+const gridValues = [0, max / 2, max];
+const last = coords[coords.length - 1];
+
+// First / middle / last only — labelling every bucket collides.
+const tickIndexes =
+  coords.length <= 3
+    ? coords.map((_, index) => index)
+    : [0, Math.floor((coords.length - 1) / 2), coords.length - 1];
+
+const band = coords.length > 1 ? plotW / (coords.length - 1) : plotW;
+const hitWidth = Math.max(band, 8);
+---
+
+<div class="chart" data-chart>
+  {
+    coords.length === 0 ? (
+      <p class="empty">No data in this range.</p>
+    ) : (
+      <>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`${seriesName} over time. Full values in the table below.`}
+        >
+          {
+            gridValues.map((value) => (
+              <g>
+                <line
+                  class="grid-line"
+                  x1={PAD.left}
+                  x2={PAD.left + plotW}
+                  y1={yAt(value)}
+                  y2={yAt(value)}
+                  vector-effect="non-scaling-stroke"
+                />
+                <text class="tick" x={PAD.left - 8} y={yAt(value) + 4} text-anchor="end">
+                  {full(value)}
+                </text>
+              </g>
+            ))
+          }
+
+          <line
+            class="axis-line"
+            x1={PAD.left}
+            x2={PAD.left + plotW}
+            y1={baseline}
+            y2={baseline}
+            vector-effect="non-scaling-stroke"
+          />
+
+          <path class="area" d={areaPath} />
+          <path class="line" d={linePath} vector-effect="non-scaling-stroke" />
+
+          <line
+            class="crosshair"
+            y1={PAD.top}
+            y2={baseline}
+            x1={PAD.left}
+            x2={PAD.left}
+            vector-effect="non-scaling-stroke"
+          />
+
+          {
+            tickIndexes.map((index) => (
+              <text
+                class="tick"
+                x={coords[index].x}
+                y={H - 8}
+                text-anchor={
+                  index === 0
+                    ? 'start'
+                    : index === coords.length - 1
+                      ? 'end'
+                      : 'middle'
+                }
+              >
+                {coords[index].display}
+              </text>
+            ))
+          }
+
+          {last && <circle class="end-dot" cx={last.x} cy={last.y} r="4" />}
+          {
+            last && (
+              <text class="end-label" x={last.x + 10} y={last.y + 4}>
+                {full(last.value)}
+              </text>
+            )
+          }
+
+          {
+            coords.map((c) => (
+              <rect
+                class="hit"
+                x={Math.max(PAD.left, c.x - hitWidth / 2)}
+                y={PAD.top}
+                width={hitWidth}
+                height={plotH}
+                tabindex="0"
+                data-label={c.display}
+                data-value={`${full(c.value)} ${seriesName.toLowerCase()}`}
+                data-x={c.x}
+                data-y={c.y}
+              />
+            ))
+          }
+        </svg>
+
+        <div class="chart-tip" aria-hidden="true"></div>
+
+        <details class="table-view">
+          <summary>Table view</summary>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th class="num">{seriesName}</th>
+                  {extraColumns.map((column) => <th class="num">{column.header}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  coords.map((c, index) => (
+                    <tr>
+                      <td>{c.display}</td>
+                      <td class="num">{full(c.value)}</td>
+                      {
+                        extraColumns.map((column) => (
+                          <td class="num">{column.values[index] ?? '—'}</td>
+                        ))
+                      }
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </>
+    )
+  }
+</div>
+
+<script>
+  // Hover and keyboard focus reveal the same thing; the table view means no
+  // value is reachable only by pointing at it.
+  document.querySelectorAll('[data-chart]').forEach((chart) => {
+    const svg = chart.querySelector('svg');
+    const tip = chart.querySelector('.chart-tip');
+    const crosshair = chart.querySelector('.crosshair');
+    if (!svg || !tip) return;
+
+    const reveal = (hit) => {
+      const x = Number(hit.dataset.x);
+      const y = Number(hit.dataset.y);
+      const box = svg.getBoundingClientRect();
+      const scale = box.width / svg.viewBox.baseVal.width;
+
+      tip.textContent = '';
+      const heading = document.createElement('strong');
+      heading.textContent = hit.dataset.label ?? '';
+      const row = document.createElement('span');
+      row.className = 'tip-row';
+      row.textContent = hit.dataset.value ?? '';
+      tip.append(heading, row);
+
+      tip.style.left = `${x * scale}px`;
+      tip.style.top = `${y * scale - 10}px`;
+      tip.style.opacity = '1';
+
+      if (crosshair) {
+        crosshair.setAttribute('x1', String(x));
+        crosshair.setAttribute('x2', String(x));
+        crosshair.style.opacity = '1';
+      }
+    };
+
+    const hide = () => {
+      tip.style.opacity = '0';
+      if (crosshair) crosshair.style.opacity = '0';
+    };
+
+    chart.querySelectorAll('.hit').forEach((hit) => {
+      hit.addEventListener('mouseenter', () => reveal(hit));
+      hit.addEventListener('focus', () => reveal(hit));
+      hit.addEventListener('mouseleave', hide);
+      hit.addEventListener('blur', hide);
+    });
+  });
+</script>
