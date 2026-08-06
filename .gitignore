@@ -23,15 +23,9 @@ pnpm-debug.log*
 .idea/
 
 # --- control-room ----------------------------------------------------------
-# Your real site registry: contains zone/site IDs. Keep it local.
-data/sites.json
-# Tokens saved from the settings page. Never commit.
-data/secrets.json
-# Password hash and session secret.
-data/auth.json
-# Locally cached site favicons and page titles.
-data/favicons/
-data/site-meta.json
-# Saved test runs and captured screenshots/video.
-data/runs/
-data/artifacts/
+# Everything under data/ is runtime state: the site registry (zone and site
+# ids), tokens saved from the settings page, the password hash and session
+# secret, cached favicons and titles, and saved runs with their screenshots.
+# None of it belongs in a public repo, so the whole directory is ignored rather
+# than a list that has to be kept in step with whatever the app writes next.
+data/

@@ -1,7 +1,6 @@
 ---
 import '../styles/app.css';
 import AutoRefresh from '../components/AutoRefresh.astro';
-import DemoBanner from '../components/DemoBanner.astro';
 import { envValue } from '../lib/env';
 import { realtimeForSites } from '../lib/providers/plausible';
 import { domainOf, titlesFor } from '../lib/site-meta';
@@ -13,7 +12,7 @@ interface Props {
 }
 
 const { title, activeSlug } = Astro.props;
-const { sites, source } = await loadRegistry();
+const { sites } = await loadRegistry();
 const path = Astro.url.pathname;
 const isDashboard = path === '/';
 const isSettings = path === '/settings';
@@ -187,7 +186,6 @@ const labelFor = (site: (typeof sites)[number]): string =>
       </aside>
 
       <main class="main">
-        {source === 'example' && <DemoBanner />}
         <slot />
       </main>
 

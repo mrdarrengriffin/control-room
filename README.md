@@ -64,8 +64,9 @@ searches your connected services for a matching Cloudflare zone, Netlify site,
 Plausible property and GitHub repo, then shows you what it found before saving
 anything.
 
-Until you add your first site, you'll see example data with a banner saying so.
-Nothing shown there is yours.
+Until you add one, the dashboard is empty. That's deliberate — Control Room only
+ever shows sites you've added, never placeholder data that could be mistaken for
+yours.
 
 ---
 
@@ -114,16 +115,20 @@ is found without being told about it.
 
 <br>
 
-Both work, and files are read live:
+Both work, and files are read live.
 
-```sh
-cp .env.example .env                          # tokens
-cp data/sites.example.json data/sites.json    # sites
+**Tokens** — `cp .env.example .env` and fill it in. Values resolve in three
+layers, highest first: `data/secrets.json` (written by Settings) → environment
+variables → the `.env` file. The settings page tells you which layer each value
+is coming from.
+
+**Sites** — write `data/sites.json` yourself. The
+[format is documented here](docs/ARCHITECTURE.md#the-sitesjson-format); the
+shorthand is just a list of domains:
+
+```json
+{ "domains": ["example.org", "docs.example.org"] }
 ```
-
-Values resolve in three layers, highest first: `data/secrets.json` (written by
-Settings) → environment variables → the `.env` file. The settings page tells you
-which layer each value is coming from.
 
 </details>
 
@@ -265,13 +270,13 @@ key is wrong *or* the key simply can't see the site being queried. Since the key
 is checked by reading one of your sites, the usual cause is the site, not the
 key:
 
-1. **Have you added a real site yet?** Before you do, the dashboard is showing
-   example data, and `blog.example.org` isn't on your Plausible. Control Room
-   now tells you this instead of running the doomed check.
-2. **Is `PLAUSIBLE_BASE_URL` set?** It defaults to `https://plausible.io`, so a
-   self-hosted key looks invalid until you point it at your own instance.
-3. **Can the key's account see that specific site?** Keys are per-user and only
+1. **Is `PLAUSIBLE_BASE_URL` set?** It defaults to `https://plausible.io`, so a
+   self-hosted key looks invalid until you point it at your own instance. Check
+   the exact value — `http://` instead of `https://` fails the same way, because
+   the redirect turns the `POST` into a `GET`.
+2. **Can the key's account see that specific site?** Keys are per-user and only
    read sites that user has access to.
+3. **Is the site's domain exactly as Plausible knows it?** `www.` counts.
 
 </details>
 

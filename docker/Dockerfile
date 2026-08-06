@@ -88,13 +88,11 @@ COPY package.json ./
 # Apache-2.0 §4(a) and §4(d).
 COPY LICENSE NOTICE /workspace/
 
-# Kept outside /workspace/data on purpose: that path is a bind-mount at runtime,
-# so anything stored there in the image is invisible. The entrypoint copies from
-# here into the mounted directory when a file is missing.
-COPY data/sites.example.json /opt/control-room/seed/sites.example.json
-COPY docker/entrypoint.sh /usr/local/bin/control-room-entrypoint
-RUN chmod +x /usr/local/bin/control-room-entrypoint
+# Nothing is seeded into the data directory. A new install has no sites and the
+# dashboard says so; it used to ship an example registry, but nothing downstream
+# distinguished those fictional sites from real ones and they were handed
+# straight to the live providers.
 
 EXPOSE 4321
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/control-room-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "./server/index.mjs"]

@@ -18,11 +18,10 @@ interface SitesFile {
 export interface Registry {
   sites: Site[];
   /**
-   * Which file we actually loaded. 'example' means the user hasn't created
-   * their own registry yet, which the UI calls out rather than pretending the
-   * placeholder sites are real.
+   * Whether a registry was loaded at all. 'missing' is the normal state of a
+   * new install, not an error — the dashboard shows its empty state.
    */
-  source: 'registry' | 'example' | 'missing';
+  source: 'registry' | 'missing';
   problems: string[];
 }
 
@@ -180,34 +179,29 @@ const siteFromDomain = (
 };
 
 /**
- * Load the registry, falling back to the bundled example so a fresh checkout
- * renders something explorable instead of an empty page.
+ * Load the registry. No sites means no sites.
+ *
+ * This used to fall back to a bundled example file so a fresh install looked
+ * explorable. It was a mistake: nothing downstream checked where the sites came
+ * from, so five fictional domains were fed to the live providers. A new install
+ * fetched example.org's title and favicon, and asked Plausible about
+ * blog.example.org on every render — which answers 401 "Invalid API key or site
+ * ID", making a perfectly good API key look rejected.
  */
 const loadRegistryUncached = async (): Promise<Registry> => {
   const problems: string[] = [];
 
-  const real = await readJsonFile<SitesFile>(
+  const file = await readJsonFile<SitesFile>(
     path.join(dataRoot(), 'sites.json'),
   );
-  const file =
-    real ??
-    (await readJsonFile<SitesFile>(
-      path.join(dataRoot(), 'sites.example.json'),
-    ));
-
-  const source: Registry['source'] = real
-    ? 'registry'
-    : file
-      ? 'example'
-      : 'missing';
 
   if (!file) {
-    return {
-      sites: [],
-      source,
-      problems: ['No data/sites.json found. Copy data/sites.example.json.'],
-    };
+    // Not a problem to report — it is simply what a new install looks like.
+    // The dashboard renders its empty state instead.
+    return { sites: [], source: 'missing', problems: [] };
   }
+
+  const source: Registry['source'] = 'registry';
 
   const explicit = Array.isArray(file.sites) ? file.sites : [];
   const shorthand = Array.isArray(file.domains) ? file.domains : [];
@@ -480,7 +474,7 @@ export const loadRegistry = async (): Promise<Registry> => {
   try {
     info = await stat(file);
   } catch {
-    // No real registry (example fallback); not worth caching.
+    // No registry yet. There is nothing to parse and nothing to cache.
     return loadRegistryUncached();
   }
 

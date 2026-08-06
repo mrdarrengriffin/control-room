@@ -254,45 +254,6 @@ h3 {
   object-fit: contain;
 }
 
-/* --- Example-data banner -------------------------------------------------- */
-
-/*
- * Amber, because "you are looking at data that isn't yours" is genuinely a
- * caution. That is the status palette used for an actual status — not for a
- * data series, which is the thing it must never be.
- */
-.demo-banner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
-  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
-  color: var(--ink);
-}
-
-.demo-banner-text {
-  flex: 1 1 320px;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-
-.demo-banner-text strong {
-  display: block;
-  margin-bottom: 2px;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-.demo-banner code {
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
 /* --- Login / first-run setup --------------------------------------------- */
 
 .gate {
@@ -559,6 +520,41 @@ h3 {
   box-shadow: var(--shadow-sm);
   padding: 20px;
   min-width: 0;
+}
+
+/*
+ * The only thing on the dashboard of a new install, so it is given room rather
+ * than being a normal card that happens to contain a sentence.
+ */
+.empty-state {
+  max-width: 44rem;
+  margin: 32px auto;
+  padding: 32px;
+  text-align: center;
+}
+
+.empty-state h2 {
+  margin: 0 0 10px;
+  font-size: 1.35rem;
+}
+
+.empty-state p {
+  margin: 0 auto;
+  max-width: 34rem;
+  color: var(--ink-muted);
+  line-height: 1.6;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 22px 0 4px;
+}
+
+.empty-state-note {
+  font-size: 0.85rem;
 }
 
 .card-head {

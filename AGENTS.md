@@ -48,10 +48,14 @@ docker exec control-room-control-room-1 gh pr list --repo owner/name
 
 ## Before committing
 
-`data/` is gitignored apart from `sites.example.json` — keep it that way.
-`secrets.json`, `auth.json`, `sites.json`, `favicons/`, `runs/` and
-`artifacts/` all contain real credentials or real infrastructure ids, and this
-repo is public.
+**Nothing in `data/` is committed.** `secrets.json`, `auth.json`, `sites.json`,
+`favicons/`, `runs/` and `artifacts/` all hold real credentials or real
+infrastructure ids, and this repo is public.
+
+**Never add placeholder sites as a fallback.** A site in the registry is always
+a real site the user added — see
+[No example data, ever](docs/ARCHITECTURE.md#no-example-data-ever) for why that
+rule exists and what it cost to learn.
 
 ## Astro reference
 

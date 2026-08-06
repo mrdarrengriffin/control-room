@@ -24,6 +24,8 @@ next to it.
 - [Reading the scroll-performance numbers](#reading-the-scroll-performance-numbers)
 - [Provider gotchas](#provider-gotchas)
 - [Container gotchas](#container-gotchas)
+- [No example data, ever](#no-example-data-ever)
+  - [The `sites.json` format](#the-sitesjson-format)
 - [Not built yet](#not-built-yet)
 
 ## The stack
@@ -521,14 +523,94 @@ emulate.
 The build cache is scoped per platform (`scope=${{ matrix.platform }}`);
 sharing one scope has the two builds evict each other every run.
 
-### Data is seeded, never overwritten
+### Nothing is written into the data directory at startup
 
-`docker/entrypoint.sh` copies missing files from `/opt/control-room/seed/` into
-the data directory on start. This exists because `sites.example.json` is looked
-up *inside* the data directory, which on a source-less install is an empty
-bind-mount — the first run would otherwise say "copy `data/sites.example.json`"
-about a file that isn't there. It only ever creates what is absent, so an update
-can never clobber a registry, tokens or the password hash.
+The container creates no files on boot. A new install has an empty `data/` and
+an empty dashboard, and the first write happens when someone sets a password.
+
+This is worth stating because it briefly wasn't true, and the failure was
+instructive — see [No example data, ever](#no-example-data-ever).
+
+## No example data, ever
+
+`loadRegistry()` used to fall back to a bundled `sites.example.json` so a fresh
+install looked explorable. The registry it returned was tagged
+`source: 'example'`, and the intent was that callers would notice.
+
+**None of them did.** Five fictional sites were handed straight to the live
+providers, and a brand-new install would:
+
+- fetch `example.org` over the network and cache its title and favicon,
+- do the same for `blog.example.org`, `docs.example.org` and
+  `other.example.com`,
+- ask Plausible for `blog.example.org` **on every page render**, because the
+  sidebar's live visitor counts run in the layout.
+
+That last one is how it surfaced. Plausible answers an unknown site with
+`401 Invalid API key or site ID` — one message covering both causes — so the
+settings page reported a **valid API key as invalid**. The key was correct, the
+instance was correct, and the only thing wrong was that the dashboard was asking
+about a domain nobody owns.
+
+The lesson is not "add a guard". A guard was added, in one of the five call
+sites, by the person who wrote the tag — and the other four kept lying. The fix
+is that **a site in the registry is always a real site**, so no caller has to
+remember anything.
+
+If you are tempted to re-add sample data for onboarding: make it a registry the
+user explicitly chose (a "load examples" button writing `sites.json`), never a
+silent fallback that pretends to be one.
+
+### The `sites.json` format
+
+Two ways to list a site. Shorthand, when everything can be derived:
+
+```json
+{
+  "domains": ["example.org", "docs.example.org", "blog.example.org"]
+}
+```
+
+Each entry becomes its own site — subdomains included, since Plausible treats
+each as a separate property. Slug, name, url and `plausible.domain` are all
+derived from the domain.
+
+Full entries, for anything needing integration ids or custom test pages:
+
+```json
+{
+  "sites": [
+    {
+      "slug": "example",
+      "name": "Example",
+      "url": "https://example.org",
+      "tags": ["marketing"],
+      "cloudflare": { "zoneId": "…" },
+      "netlify": { "siteId": "…", "enabled": true },
+      "plausible": { "domain": "example.org" },
+      "github": { "repo": "owner/repo" },
+      "testPages": ["/", "/about/"],
+      "interactivePages": ["/product/"]
+    }
+  ]
+}
+```
+
+Both keys can appear in the same file; an explicit entry wins over the same
+domain in `domains`, so you can paste a domain list in and promote sites as you
+add ids.
+
+| Field | Notes |
+|---|---|
+| `slug` | Immutable — runs and artifacts are stored under it |
+| `cloudflare.zoneId` | Cloudflare → site → Overview |
+| `netlify.siteId` | Optional; resolved by domain when omitted. `enabled: false` silences the panel |
+| `plausible.domain` | Defaults to the hostname of `url` |
+| `plausible.baseUrl` | Only when this site is on a *different* Plausible instance |
+| `plausible.keyEnv` | Name of the env var holding that instance's key |
+| `github.repo` | `owner/repo`, case-sensitive |
+| `testPages` | Audited and captured by default |
+| `interactivePages` | Where the scroll-performance test aims |
 
 ## Not built yet
 

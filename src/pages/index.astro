@@ -139,12 +139,21 @@ const scopeHref = (scope: 'mine' | 'all') => {
 
   {
     sites.length === 0 ? (
-      <div class="card">
-        <h2>Get started</h2>
+      <div class="card empty-state">
+        <h2>Add your first site</h2>
         <p>
-          Copy <code>data/sites.example.json</code> to <code>data/sites.json</code>{' '}
-          and list your sites, then copy <code>.env.example</code> to{' '}
-          <code>.env</code> and add your tokens.
+          Control Room needs to know which sites are yours. Give it a URL and it
+          will search your connected services for a matching Cloudflare zone,
+          Netlify site, Plausible property and GitHub repo, then show you what it
+          found before saving anything.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button is-primary" href="/sites/new">Add a site</a>
+          <a class="button" href="/settings">Connect a service first</a>
+        </div>
+        <p class="empty-state-note">
+          Services are optional and can be connected one at a time — a site with
+          no tokens still gets screenshots and Lighthouse audits.
         </p>
       </div>
     ) : (
