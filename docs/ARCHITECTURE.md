@@ -501,6 +501,26 @@ a fresh container's PID namespace that low PID has been reassigned to the new
 node process, so **Astro kills itself and the container exits 143**. The compose
 command deletes the stale lock instead.
 
+### Multi-arch images are built on native runners, not emulated
+
+`.github/workflows/publish.yml` builds `linux/amd64` on `ubuntu-24.04` and
+`linux/arm64` on `ubuntu-24.04-arm`, each pushing **by digest with no tag**, and
+a final job stitches the digests into one tagged manifest list.
+
+The obvious alternative — one job with `platforms: linux/amd64,linux/arm64` —
+means QEMU for the second architecture, and emulating an `npm install` plus an
+Astro build on top of a ~2.8GB Playwright base is slow enough to risk timing the
+job out. ARM runners are free for public repositories, so there is no reason to
+emulate.
+
+> [!WARNING]
+> The per-arch jobs must **not** push tags. Two jobs pushing `:main` would
+> overwrite each other and the result would be single-arch — whichever finished
+> last. Tagging happens only in the merge job.
+
+The build cache is scoped per platform (`scope=${{ matrix.platform }}`);
+sharing one scope has the two builds evict each other every run.
+
 ### Data is seeded, never overwritten
 
 `docker/entrypoint.sh` copies missing files from `/opt/control-room/seed/` into
@@ -518,6 +538,3 @@ can never clobber a registry, tokens or the password hash.
 - **No test suite of our own.** The app tests other people's sites and none of
   its own code.
 - **`data/runs/` grows unbounded.** No pruning, and no score trends over time.
-- **amd64 only.** Cross-building the ~2.8GB Playwright base for arm64 under QEMU
-  is slow enough to risk timing the CI job out. Adding `linux/arm64` needs a
-  native ARM runner.

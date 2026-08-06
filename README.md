@@ -150,9 +150,9 @@ Images are published to
 To follow `main` instead of releases, set `CONTROL_ROOM_TAG=main` in a `.env`
 file beside your compose file.
 
-> [!NOTE]
-> Images are **linux/amd64 only** for now — see
-> [the architecture notes](docs/ARCHITECTURE.md#not-built-yet) for why.
+Images are multi-arch — **linux/amd64** and **linux/arm64** — so Apple Silicon,
+Intel Macs, PCs and ARM boards like a Raspberry Pi 5 all pull the right one
+automatically.
 
 ---
 
@@ -170,10 +170,7 @@ browser and has a one-click cache purge. It is built to stay on your machine:
   third party on every page load.
 - **No analytics, no crash reporting, no phoning home.**
 
-<details>
-<summary><b>Running it on your network or a NAS</b></summary>
-
-<br>
+### Running it on your network or a NAS
 
 Set `CONTROL_ROOM_BIND=0.0.0.0` in your `.env` and reach it at
 `http://that-host:4331`.
@@ -183,8 +180,6 @@ Set `CONTROL_ROOM_BIND=0.0.0.0` in your `.env` and reach it at
 > behind TLS with a reverse proxy, or on a private network like Tailscale,
 > before exposing it. That matters more here than for a typical self-hosted app,
 > given what this one can reach.
-
-</details>
 
 ---
 
