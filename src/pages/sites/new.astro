@@ -25,9 +25,9 @@ if (rawUrl !== '') {
 }
 
 /*
- * Only on request, and only the services asked for. Cloudflare answers in half
- * a second; GitHub paginates every repository you own and takes ten. Running
- * all four on every visit to this page would be indefensible.
+ * Only on request, and only the services asked for. This is several API calls
+ * against live services; running them on every visit to this page would be
+ * indefensible.
  */
 const requested = params.getAll('source').filter(isScanSource);
 const scanning = params.has('scan');
@@ -126,8 +126,7 @@ const LABELS: Record<FindingStatus, string> = {
         <div class="button-row" style="margin-top:10px">
           <button class="button is-primary" type="submit">Discover</button>
           <span class="hint">
-            Only the ticked services are queried. GitHub is much the slowest,
-            since it pages through every repository you own.
+            Only the ticked services are queried.
           </span>
         </div>
       </form>
@@ -189,17 +188,15 @@ const LABELS: Record<FindingStatus, string> = {
               of domains. One code path for "add several sites", however they
               were chosen.
             */}
-            {/* A real inventory runs to dozens of rows — 75 on the install
-                this was built against — so ticking them one at a time is not a
-                reasonable ask. Inert without JavaScript; the checkboxes still
-                work. */}
+            {/* A real inventory runs to dozens of rows — 24 Cloudflare zones on
+                the install this was built against — so ticking them one at a
+                time is not a reasonable ask. Inert without JavaScript; the
+                checkboxes still work. */}
             <div class="button-row" style="margin-bottom:8px">
               <button class="button" type="button" data-scan-all>Select all</button>
               <button class="button" type="button" data-scan-none>Select none</button>
               <span class="hint">
-                {scan.candidates.length} found, most-corroborated first. Anything
-                from GitHub alone is a repository homepage, which may not be a
-                site you run.
+                {scan.candidates.length} found, most-corroborated first.
               </span>
             </div>
 

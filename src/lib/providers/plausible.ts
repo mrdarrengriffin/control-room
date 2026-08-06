@@ -635,12 +635,14 @@ export const listDomains = async (): Promise<PanelResult<string[]>> => {
       }
       if (error.status === 404) {
         /*
-         * Self-hosted Community Edition does not expose the Sites API, and
-         * answers with its marketing page rather than a JSON 404. Reporting the
-         * body verbatim dumped a screenful of HTML into the UI.
+         * Probed against a real Community Edition instance: /api/v1/sites is
+         * not mounted and answers with the marketing page, so echoing the body
+         * put a screenful of HTML in the UI. /api/sites does exist and does
+         * list sites, but replies "You need to be logged in" — it is the
+         * dashboard's own session-authenticated route, not usable with a token.
          */
         return failed(
-          `${baseUrl} has no Sites API at /api/v1/sites, so its sites cannot be listed. Analytics are unaffected.`,
+          `${baseUrl} does not offer a token-authenticated way to list sites: /api/v1/sites is not mounted on this build, and the dashboard's own /api/sites needs a logged-in session. Analytics are unaffected.`,
         );
       }
       // Any other HTTP failure: status only. The body may be an HTML page.
