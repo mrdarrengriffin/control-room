@@ -1,6 +1,9 @@
 {
   "name": "Control Room",
-  "dockerComposeFile": ["../docker-compose.dev.yml"],
+  "dockerComposeFile": [
+    "../docker-compose.dev.yml",
+    "docker-compose.devcontainer.yml"
+  ],
   "service": "control-room-dev",
   "workspaceFolder": "/workspace",
   "shutdownAction": "stopCompose",

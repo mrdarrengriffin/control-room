@@ -1,0 +1,25 @@
+# Dev Container overrides layered on top of ../docker-compose.dev.yml.
+#
+# "Clone Repository in Container Volume" puts the checkout in a named volume that
+# Dev Containers mounts at /workspaces/control-room. There is no host directory
+# to bind-mount in that mode, so the base file's `.:/workspace` mount resolves to
+# an empty directory and `npm run dev` there exits instantly (no package.json) —
+# which is why the container starts and immediately stops.
+#
+# Detect where the code actually landed and run from there, so the same
+# devcontainer works whether the repo was cloned into a volume
+# (/workspaces/control-room) or opened from a local checkout bind-mounted at
+# /workspace. CONTROL_ROOM_DATA_DIR is derived from the same directory so the
+# flatfile store lives next to the code in both cases. `$$PWD` is `$PWD` after
+# Compose's variable interpolation.
+services:
+  control-room-dev:
+    command: >
+      bash -c "if [ -f /workspaces/control-room/package.json ]; then cd /workspaces/control-room; else cd /workspace; fi;
+               export CONTROL_ROOM_DATA_DIR=$$PWD/data;
+               rm -f .astro/dev.json;
+               if [ ! -x node_modules/.bin/astro ] || [ package.json -nt node_modules/.package-lock.json ]; then
+                 echo '[control-room] installing dependencies...';
+                 npm install --no-audit --no-fund;
+               fi;
+               exec npm run dev -- --host 0.0.0.0"
