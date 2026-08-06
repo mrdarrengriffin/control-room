@@ -14,9 +14,9 @@ Everything runs in Docker. There is no Node.js on the host, so **don't run
 `npm`, `astro` or `node` directly** — they won't work.
 
 ```sh
-docker compose up -d --build                      # prod-ish  :4331
-docker compose -f docker-compose.dev.yml up -d    # hot reload :4332
-docker compose -f docker-compose.dev.yml logs -f  # dev logs
+docker compose up -d      # dev server with hot reload, http://localhost:4321
+docker compose logs -f    # watch it
+docker compose down       # stop
 ```
 
 > [!WARNING]
@@ -28,7 +28,7 @@ docker compose -f docker-compose.dev.yml logs -f  # dev logs
 To run a one-off command, exec into the container:
 
 ```sh
-docker exec control-room-control-room-1 gh pr list --repo owner/name
+docker compose exec app gh pr list --repo owner/name
 ```
 
 ## Conventions

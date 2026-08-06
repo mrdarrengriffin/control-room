@@ -213,21 +213,37 @@ Open any site and use the runners at the bottom of the page.
 
 ## 🛠️ Development
 
-Two instances on two ports, so the dashboard you use stays up while you edit it.
-
 ```sh
 git clone git@github.com:mrdarrengriffin/control-room.git
 cd control-room
-
-docker compose up -d --build                      # you use this    :4331
-docker compose -f docker-compose.dev.yml up -d    # you edit this   :4332
+docker compose up
 ```
 
-Or open the folder in VS Code and **Reopen in Container** — the devcontainer
-uses that same dev service and starts the dev server for you.
+Open **<http://localhost:4321>**. Edit files in your editor of choice; the dev
+server reloads. That's the whole setup — no Node on your machine, no browsers to
+install, no devcontainer.
 
-Ports are overridable with `CONTROL_ROOM_PORT` and `CONTROL_ROOM_DEV_PORT`. They
-default to 4331/4332 rather than Astro's usual 4321, which VS Code tends to hold.
+The first run builds the image and installs dependencies, so give it a few
+minutes. After that it starts in seconds.
+
+```sh
+docker compose up -d      # background
+docker compose logs -f    # watch it
+docker compose down       # stop
+```
+
+Port 4321 taken? Put `CONTROL_ROOM_PORT=4322` in a `.env` file.
+
+> [!NOTE]
+> This runs the **dev server**, separate from any Control Room you're actually
+> using day to day. Its data lives in `./data` in the checkout, so it has its own
+> password and its own tokens.
+
+To try a production build locally:
+
+```sh
+docker build -f docker/Dockerfile --target prod -t control-room:local .
+```
 
 **Releasing:** push to `main` to publish `:main`, or
 [cut a release](https://github.com/mrdarrengriffin/control-room/releases/new)

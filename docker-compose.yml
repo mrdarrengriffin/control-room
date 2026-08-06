@@ -1,42 +1,64 @@
-# The instance you daily-drive. Bound to 127.0.0.1 on purpose: this holds API
-# tokens for four services and is never meant to be reachable off this machine.
-name: control-room
+# Development.
+#
+#   docker compose up
+#
+# That is the whole setup. Edit files on your machine; the dev server reloads.
+# Nothing to install on the host - no Node, no browsers.
+#
+# To *run* Control Room rather than work on it, use the published image:
+# see deploy/docker-compose.yml.
+name: control-room-dev
 
 services:
-  control-room:
+  app:
     build:
       context: .
       dockerfile: docker/Dockerfile
-      target: prod
-    image: control-room:latest
-    restart: unless-stopped
+      target: dev
+
+    # http://localhost:4321 - set CONTROL_ROOM_PORT in .env if that clashes.
+    ports:
+      - "127.0.0.1:${CONTROL_ROOM_PORT:-4321}:4321"
+
+    # Optional. Tokens can equally be entered on the Settings page.
     env_file:
       - path: .env
         required: false
+
     environment:
-      HOST: 0.0.0.0
-      PORT: "4321"
-      # The gh CLI reads GH_TOKEN; we keep one canonical name in .env.
-      GH_TOKEN: ${GITHUB_TOKEN:-}
       CONTROL_ROOM_DATA_DIR: /workspace/data
-    ports:
-      # Defaults to loopback. Set CONTROL_ROOM_BIND=0.0.0.0 in .env to reach it
-      # from other machines — only worth doing now that there is a password, and
-      # ideally behind TLS or a private network, since plain HTTP sends it in
-      # the clear.
-      - "${CONTROL_ROOM_BIND:-127.0.0.1}:${CONTROL_ROOM_PORT:-4331}:4321"
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:4321/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      # The bundled gh CLI reads GH_TOKEN; .env keeps one canonical name.
+      GH_TOKEN: ${GITHUB_TOKEN:-}
+
     volumes:
-      # Site registry, saved runs and captured artifacts survive rebuilds.
-      - ./data:/workspace/data
-    # Chromium crashes on Docker's default 64MB /dev/shm.
+      - .:/workspace
+      # node_modules lives in a volume rather than the bind mount: far faster on
+      # macOS and Windows, and it stops the host and container fighting over
+      # platform-specific builds.
+      - node_modules:/workspace/node_modules
+
+    # Chromium crashes on Docker's default 64MB /dev/shm, and this app drives a
+    # real browser for Lighthouse and Playwright.
     shm_size: "1gb"
+
+    stdin_open: true
+    tty: true
+
+    # The volume starts empty, so install on first boot and whenever
+    # package.json changes.
+    #
+    # Astro 7 records the dev server's PID in .astro/dev.json, which lives in
+    # the bind mount and outlives the container, so any lock here is stale.
+    # Do NOT use `astro dev --force` instead: it SIGTERMs the PID in that file,
+    # and in a fresh container that PID is the new node process - Astro kills
+    # itself and the container exits 143.
+    command: >
+      bash -c "rm -f .astro/dev.json;
+               if [ ! -x node_modules/.bin/astro ] || [ package.json -nt node_modules/.package-lock.json ]; then
+                 echo '[control-room] installing dependencies...';
+                 npm install --no-audit --no-fund;
+               fi;
+               exec npm run dev -- --host 0.0.0.0"
+
+volumes:
+  node_modules:

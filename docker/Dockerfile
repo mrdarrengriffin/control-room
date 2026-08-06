@@ -45,7 +45,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
 # ---------------------------------------------------------------------------
-# dev — source is bind-mounted over /workspace by docker-compose.dev.yml, so
+# dev — source is bind-mounted over /workspace by docker-compose.yml, so
 # what matters here is the toolchain, not the copied files.
 # ---------------------------------------------------------------------------
 FROM base AS dev
@@ -54,7 +54,7 @@ COPY --from=deps /workspace/node_modules ./node_modules
 COPY . .
 EXPOSE 4321
 ENTRYPOINT ["/usr/bin/tini", "--"]
-# Clear any stale dev-server lock first — see the note in docker-compose.dev.yml
+# Clear any stale dev-server lock first — see the note in docker-compose.yml
 # for why `astro dev --force` is the wrong tool for this.
 CMD ["bash", "-lc", "rm -f .astro/dev.json; exec npm run dev -- --host 0.0.0.0"]
 
