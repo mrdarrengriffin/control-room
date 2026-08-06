@@ -18,8 +18,10 @@ import { messageOf } from '../../../lib/types';
  * it can only ever be one of these.
  */
 const RETURN_TO: Record<string, string> = {
-  import: '/sites/import',
-  new: '/sites/new',
+  // A bulk add is finished business — the useful next screen is the dashboard
+  // with the new sites on it, not the form you just emptied.
+  import: '/',
+  new: '/',
 };
 
 const back = (status: 'ok' | 'error', message: string, from = 'import') =>

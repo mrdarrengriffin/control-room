@@ -1,145 +1,49 @@
-import { listZones } from './providers/cloudflare';
-import { listDomains as listNetlifyDomains } from './providers/netlify';
-import { listDomains as listPlausibleDomains } from './providers/plausible';
+import { invalidate } from './cache';
+import { ZONES_CACHE_KEY, listZones } from './providers/cloudflare';
 import { loadRegistry, slugFromDomain } from './sites';
-import type { PanelResult } from './types';
 
 /**
- * Ask every connected service which domains it knows about.
+ * Which domains does Cloudflare know about that aren't here yet?
  *
- * The alternative is typing them one at a time, and the inventory already
- * exists — in Cloudflare's zone list, in what Netlify serves. Discovering it
- * beats remembering it: the first time this was done by hand against Cloudflare
- * it turned up six analytics properties where three had been guessed.
+ * Cloudflare only. The others were tried and dropped: Netlify's site list comes
+ * back empty for a token that cannot enumerate the teams the sites live in; a
+ * self-hosted Plausible does not mount the token-authenticated /api/v1/sites at
+ * all; and GitHub could offer nothing better than repository homepage links,
+ * which produced 54 domains of mostly other people's projects against 24 real
+ * ones. The zone list is authoritative and answers in half a second.
  *
- * GitHub was a source here and was removed. It could only offer repository
- * homepage links, which meant 54 domains of which most were readthedocs, Ghost
- * and other people's projects — ten seconds of paging to produce mostly noise.
- *
- * Every source degrades on its own. One unconfigured or failing service must
- * not stop the others reporting, because the useful answer is usually the union
- * of whichever ones did work.
+ * There is no scheduler behind "periodically". The zone list is cached for an
+ * hour with stale-while-revalidate and the add-site page re-renders on its own
+ * timer, so the scan refreshes itself in the background with no job to run or
+ * supervise.
  */
 
-export type ScanSourceId = 'cloudflare' | 'plausible' | 'netlify';
-
-export interface ScanSource {
-  id: ScanSourceId;
-  name: string;
-  status: 'ok' | 'unconfigured' | 'error';
-  /** How many domains this source contributed, before de-duplication. */
-  found: number;
-  detail?: string;
-}
-
-export interface Candidate {
-  domain: string;
-  /** Which services reported it. More sources is weak evidence it matters. */
-  sources: ScanSourceId[];
-}
-
 export interface ScanResult {
-  sources: ScanSource[];
-  candidates: Candidate[];
-  /** Domains found but already in the registry — reported, not offered. */
+  status: 'ok' | 'unconfigured' | 'error';
+  /** Why there is nothing to show, when there is nothing to show. */
+  detail?: string;
+  /** Zones not already in the registry. */
+  candidates: string[];
+  /** Zones already in the registry. Shown, but not offered again. */
   alreadyAdded: string[];
+  /** Total zones the token can see. */
+  total: number;
 }
 
-export const SCAN_SOURCES: Array<{
-  id: ScanSourceId;
-  name: string;
-  what: string;
-}> = [
-  { id: 'cloudflare', name: 'Cloudflare', what: 'Every zone on the account. The most complete list of what you run.' },
-  { id: 'netlify', name: 'Netlify', what: 'Custom domains and aliases of sites the token can enumerate.' },
-  { id: 'plausible', name: 'Plausible', what: 'Sites on the default instance. Needs the API-key Sites endpoint, which self-hosted Community Edition does not mount.' },
-];
+/** Drop the cached zone list so the next scan really asks Cloudflare. */
+export const forgetScan = (): void => invalidate(ZONES_CACHE_KEY);
 
-const LABELS: Record<ScanSourceId, string> = Object.fromEntries(
-  SCAN_SOURCES.map((source) => [source.id, source.name]),
-) as Record<ScanSourceId, string>;
+export const scanCloudflare = async (): Promise<ScanResult> => {
+  const zones = await listZones();
 
-export const isScanSource = (value: string): value is ScanSourceId =>
-  SCAN_SOURCES.some((source) => source.id === value);
-
-/** A hostname is only interesting if it has a dot and no path or scheme left. */
-const cleanDomain = (raw: string): string | undefined => {
-  const value = raw
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/.*$/, '')
-    .replace(/:\d+$/, '');
-  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(value)) return undefined;
-  return value;
-};
-
-export const scanServices = async (
-  selected: ScanSourceId[],
-): Promise<ScanResult> => {
-  const wanted = new Set(selected);
-
-  const run = async <T>(
-    id: ScanSourceId,
-    load: () => Promise<PanelResult<T>>,
-  ): Promise<PanelResult<T> | undefined> =>
-    wanted.has(id) ? load() : undefined;
-
-  const [zones, plausible, netlify] = await Promise.all([
-    run('cloudflare', listZones),
-    run('plausible', listPlausibleDomains),
-    run('netlify', listNetlifyDomains),
-  ]);
-
-  const results: Array<[ScanSourceId, PanelResult<string[]>]> = [];
-  if (zones) {
-    results.push([
-      'cloudflare',
-      zones.status === 'ok'
-        ? { status: 'ok', data: zones.data.map((zone) => zone.name) }
-        : zones,
-    ]);
-  }
-  if (plausible) results.push(['plausible', plausible]);
-  if (netlify) results.push(['netlify', netlify]);
-
-  const sources: ScanSource[] = [];
-  const bySource = new Map<string, Set<ScanSourceId>>();
-
-  for (const [id, result] of results) {
-    if (result.status !== 'ok') {
-      sources.push({
-        id,
-        name: LABELS[id],
-        status: result.status === 'unconfigured' ? 'unconfigured' : 'error',
-        found: 0,
-        detail: result.status === 'unconfigured' ? result.reason : result.reason,
-      });
-      continue;
-    }
-
-    let found = 0;
-    for (const raw of result.data) {
-      const domain = cleanDomain(raw);
-      if (!domain) continue;
-      found += 1;
-      const set = bySource.get(domain) ?? new Set<ScanSourceId>();
-      set.add(id);
-      bySource.set(domain, set);
-    }
-
-    sources.push({
-      id,
-      name: LABELS[id],
-      status: 'ok',
-      found,
-      detail:
-        found === 0
-          ? id === 'netlify'
-            ? 'No sites this token can enumerate. Netlify hides sites in teams the token cannot list, so this does not mean there are none.'
-            : 'Nothing reported.'
-          : undefined,
-    });
+  if (zones.status !== 'ok') {
+    return {
+      status: zones.status === 'unconfigured' ? 'unconfigured' : 'error',
+      detail: zones.reason,
+      candidates: [],
+      alreadyAdded: [],
+      total: 0,
+    };
   }
 
   const { sites } = await loadRegistry();
@@ -149,23 +53,17 @@ export const scanServices = async (
     if (site.plausible?.domain) taken.add(slugFromDomain(site.plausible.domain));
   }
 
-  const candidates: Candidate[] = [];
+  const candidates: string[] = [];
   const alreadyAdded: string[] = [];
 
-  for (const [domain, ids] of bySource) {
-    if (taken.has(slugFromDomain(domain))) {
-      alreadyAdded.push(domain);
-      continue;
-    }
-    candidates.push({ domain, sources: [...ids] });
+  for (const zone of zones.data) {
+    const domain = zone.name.toLowerCase();
+    if (taken.has(slugFromDomain(domain))) alreadyAdded.push(domain);
+    else candidates.push(domain);
   }
 
-  // Most-corroborated first, then alphabetical: a domain two services agree on
-  // is likelier to be one you actually run than a single mention.
-  candidates.sort(
-    (a, b) =>
-      b.sources.length - a.sources.length || a.domain.localeCompare(b.domain),
-  );
+  candidates.sort();
+  alreadyAdded.sort();
 
-  return { sources, candidates, alreadyAdded: alreadyAdded.sort() };
+  return { status: 'ok', candidates, alreadyAdded, total: zones.data.length };
 };

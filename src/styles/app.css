@@ -587,57 +587,11 @@ h3 {
 
 /* --- Discovered domains --------------------------------------------------- */
 
-.scan-panel {
-  margin-top: 14px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.scan-panel > summary {
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-
-.scan-panel[open] > summary {
-  margin-bottom: 10px;
-}
-
-.scan-picker {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-  /* Two up where there is room; the descriptions are a line or two each. */
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
-}
-
-.scan-picker .scan-item {
-  align-items: flex-start;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.scan-picker input[type='checkbox'] {
-  margin-top: 2px;
-}
-
-.scan-picker-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.scan-picker-text strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-
 .scan-list {
   list-style: none;
-  margin: 4px 0 0;
+  /* Bottom margin matters: the Add/Refresh row sits directly beneath and was
+     touching the list border without it. */
+  margin: 4px 0 14px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -671,9 +625,23 @@ h3 {
   overflow-wrap: anywhere;
 }
 
-/* Which services vouched for this domain. Quiet: it is corroboration, not the
-   thing being chosen. */
-.scan-sources {
+/* Zones that are already sites. Shown so the list reads as the full Cloudflare
+   inventory rather than a mystery subset, but visibly inert. */
+.scan-list .is-added .scan-item {
+  cursor: default;
+  color: var(--ink-muted);
+}
+
+.scan-list .is-added .scan-item:hover {
+  background: none;
+}
+
+.scan-list .is-added input {
+  /* Greyed rather than hidden: the ticked box is what says "already have it". */
+  opacity: 0.45;
+}
+
+.scan-note {
   flex: none;
   font-size: 11px;
   color: var(--ink-muted);

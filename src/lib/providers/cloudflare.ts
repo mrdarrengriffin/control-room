@@ -115,6 +115,9 @@ export interface Zone {
   status: string;
 }
 
+/** Exported so a "refresh now" action can drop just this entry. */
+export const ZONES_CACHE_KEY = 'cloudflare:zones';
+
 /**
  * Every zone the token can see. Used both by the dashboard and by "add site by
  * URL", which matches a hostname against these names to find its zone id.
@@ -126,7 +129,7 @@ export const listZones = async (): Promise<PanelResult<Zone[]>> => {
   const token = env.cloudflareToken();
   if (!token) return unconfigured('CLOUDFLARE_API_TOKEN is not set');
 
-  return cachedResult('cloudflare:zones', TTL.zones, () => loadZones(token));
+  return cachedResult(ZONES_CACHE_KEY, TTL.zones, () => loadZones(token));
 };
 
 const loadZones = async (token: string): Promise<PanelResult<Zone[]>> => {

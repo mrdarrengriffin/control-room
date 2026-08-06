@@ -38,6 +38,14 @@ export const invalidateAll = (): void => {
 };
 
 /**
+ * Drop one key. For "refresh this now" actions, where clearing everything would
+ * needlessly throw away unrelated analytics and make the next page slow.
+ */
+export const invalidate = (key: string): void => {
+  store.delete(key);
+};
+
+/**
  * @param ttlOf decides how long a given value stays fresh; returning undefined
  * means "don't cache this at all".
  */

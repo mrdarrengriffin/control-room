@@ -296,9 +296,18 @@ export const appendSite = async (
   const existing = (await readJsonFile<Record<string, unknown>>(file)) ?? {};
   const entries = Array.isArray(existing.sites) ? [...existing.sites] : [];
 
-  const clash = entries.some(
-    (entry) => isRecord(entry) && entry.slug === site.slug,
-  );
+  /*
+   * Shorthand domains count as taken too. Checking only the `sites` array let a
+   * domain listed under `domains` be added a second time as a full entry: the
+   * file then held both, and loadRegistry silently preferred one.
+   */
+  const clash =
+    entries.some((entry) => isRecord(entry) && entry.slug === site.slug) ||
+    (Array.isArray(existing.domains) &&
+      existing.domains.some(
+        (domain) =>
+          typeof domain === 'string' && slugFromDomain(domain) === site.slug,
+      ));
   if (clash) {
     return { ok: false, reason: `A site with slug "${site.slug}" already exists.` };
   }
@@ -416,12 +425,16 @@ export const updateSite = async (
 
   entry.name = edit.name;
   entry.url = edit.url;
-  setOrDelete(entry, 'description', edit.description);
-  setOrDelete(
-    entry,
-    'tags',
-    edit.tags && edit.tags.length > 0 ? edit.tags : undefined,
-  );
+  /*
+   * description is deliberately not touched. The edit form no longer offers it,
+   * and a form that silently deletes a field it does not show is a trap — an
+   * existing description survives until someone removes it from the file.
+   */
+  /*
+   * tags, like description, is no longer in the edit form. Nothing reads it —
+   * it is never displayed, filtered or grouped on — so it was only ever a field
+   * to fill in. Existing values are left alone rather than silently dropped.
+   */
   setOrDelete(
     entry,
     'cloudflare',
@@ -440,14 +453,21 @@ export const updateSite = async (
     'github',
     edit.githubRepo ? { repo: edit.githubRepo } : undefined,
   );
+  /*
+   * baseUrl and keyEnv are carried over, not rebuilt. There is no UI for a
+   * second Plausible instance, so the form cannot send them — and rebuilding
+   * the object from the form alone would quietly strip a hand-written value the
+   * first time someone edited an unrelated field.
+   */
+  const previousPlausible = isRecord(entry.plausible) ? entry.plausible : {};
   setOrDelete(
     entry,
     'plausible',
     edit.plausibleDomain
       ? (compact({
           domain: edit.plausibleDomain,
-          baseUrl: edit.plausibleBaseUrl,
-          keyEnv: edit.plausibleKeyEnv,
+          baseUrl: edit.plausibleBaseUrl ?? previousPlausible.baseUrl,
+          keyEnv: edit.plausibleKeyEnv ?? previousPlausible.keyEnv,
         }) as Record<string, unknown>)
       : undefined,
   );
