@@ -11,6 +11,7 @@ performance — without opening five tabs and remembering four logins.
 [![Container](https://img.shields.io/badge/ghcr.io-control--room-2496ED?logo=docker&logoColor=white)](https://github.com/mrdarrengriffin/control-room/pkgs/container/control-room)
 [![Built with Astro](https://img.shields.io/badge/built%20with-Astro-BC52EE?logo=astro&logoColor=white)](https://astro.build)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-local%20first-16a34a)](#-privacy)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 </div>
 
@@ -300,5 +301,6 @@ back to `/setup`. Your sites and tokens are untouched.
 ---
 
 <div align="center">
-<sub>Built for the <a href="https://openhomefoundation.org">Open Home Foundation</a>. Runs on your machine, answers to nobody else.</sub>
+<sub>Built for the <a href="https://openhomefoundation.org">Open Home Foundation</a> · <a href="LICENSE">Apache 2.0</a><br>
+Runs on your machine, answers to nobody else.</sub>
 </div>

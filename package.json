@@ -3,6 +3,12 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
+  "description": "A local dashboard for the sites you run: Cloudflare purging, Netlify deploys, GitHub PRs, Plausible analytics and browser-driven site audits.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrdarrengriffin/control-room.git"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
