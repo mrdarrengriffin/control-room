@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { record, truncate } from './debug';
 
 export interface ExecResult {
   code: number;
@@ -30,6 +31,24 @@ export const runCommand = (
   options: ExecOptions = {},
 ): Promise<ExecResult> =>
   new Promise((resolve, reject) => {
+    /*
+     * Logged for the same reason HTTP calls are: `gh` failing is otherwise a
+     * silent panel. Arguments are safe to record — they are a fixed list built
+     * by us, and the token reaches gh through the environment, never argv.
+     */
+    const started = Date.now();
+    const log = (status: number | undefined, ok: boolean, detail?: string) =>
+      record({
+        kind: 'command',
+        provider: file === 'gh' ? 'github' : file,
+        label: `${file} ${args.join(' ')}`,
+        target: file,
+        status,
+        ok,
+        ms: Date.now() - started,
+        detail,
+      });
+
     execFile(
       file,
       args,
@@ -42,6 +61,7 @@ export const runCommand = (
       },
       (error, stdout, stderr) => {
         if (!error) {
+          log(0, true);
           resolve({ code: 0, stdout, stderr });
           return;
         }
@@ -49,25 +69,27 @@ export const runCommand = (
         const errno = error as NodeJS.ErrnoException & { killed?: boolean };
 
         if (errno.killed) {
-          reject(
-            new Error(
-              `${file} timed out after ${options.timeoutMs ?? 30_000}ms`,
-            ),
-          );
+          const message = `${file} timed out after ${options.timeoutMs ?? 30_000}ms`;
+          log(undefined, false, message);
+          reject(new Error(message));
           return;
         }
 
         if (errno.code === 'ENOENT') {
-          reject(new Error(`${file} is not installed in this container`));
+          const message = `${file} is not installed in this container`;
+          log(undefined, false, message);
+          reject(new Error(message));
           return;
         }
 
         // execFile puts the process exit status in `code` when it is numeric.
         if (typeof errno.code === 'number') {
+          log(errno.code, false, truncate(stderr || stdout));
           resolve({ code: errno.code, stdout, stderr });
           return;
         }
 
+        log(undefined, false, error.message);
         reject(error);
       },
     );

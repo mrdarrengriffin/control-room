@@ -58,6 +58,7 @@
 
   --select-arrow: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2371717a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
 
+  --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
@@ -568,6 +569,60 @@ h3 {
 .card-head .hint {
   color: var(--ink-muted);
   font-size: 12px;
+}
+
+/* --- Debug page ----------------------------------------------------------- */
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.is-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Request paths are long and must not force the table to scroll horizontally
+   when they could simply wrap. */
+code.wrap {
+  overflow-wrap: anywhere;
+}
+
+/* A failed call is the reason anyone opens this page, so tint the whole row —
+   the status pill still carries the icon and word that convey it accessibly. */
+.is-failed-row td {
+  background: color-mix(in srgb, var(--critical) 7%, transparent);
+}
+
+.debug-failed {
+  font-style: normal;
+  color: var(--critical);
+}
+
+/* The context that makes a call intelligible: which site, which instance. */
+.kv-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.kv {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.debug-detail {
+  margin-top: 5px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
 }
 
 .grid {

@@ -1,0 +1,316 @@
+---
+import Shell from '../layouts/Shell.astro';
+import StatusPill from '../components/StatusPill.astro';
+import { entries, summary } from '../lib/debug';
+import { dataDirectory, sourceOf } from '../lib/env';
+import { SERVICES } from '../lib/secrets';
+import { loadRegistry } from '../lib/sites';
+import { envValue } from '../lib/env';
+
+/**
+ * Why did that fail?
+ *
+ * Every outbound call is recorded centrally (src/lib/debug.ts); this page is
+ * the readout. It is deliberately factual rather than clever: the request that
+ * was made, where it went, what came back. The one time this was missing it
+ * cost an afternoon of chasing a Plausible key that was never wrong.
+ */
+
+const log = entries();
+const stats = summary();
+const { sites, source } = await loadRegistry();
+
+const SOURCE_LABELS: Record<string, string> = {
+  settings: 'saved in Settings',
+  environment: 'environment variable',
+  'env-file': '.env file',
+  unset: 'not set',
+};
+
+/*
+ * Effective configuration, resolved exactly as the providers see it. Secret
+ * values are never rendered — only their length and which layer won, which is
+ * enough to spot a truncated paste or a value coming from the wrong place.
+ */
+const config = SERVICES.flatMap((service) =>
+  service.fields.map((field) => {
+    const source = sourceOf(field.key);
+    const value = envValue(field.key) ?? '';
+    return {
+      service: service.name,
+      key: field.key,
+      secret: field.secret,
+      source,
+      set: value !== '',
+      // Non-secret values are shown in full: a wrong base URL is invisible
+      // otherwise, and that is precisely the bug this page exists for.
+      display: field.secret
+        ? value === ''
+          ? '—'
+          : `${value.length} characters`
+        : value || '—',
+    };
+  }),
+);
+
+const plausibleSites = sites.filter((site) => site.plausible?.domain);
+
+const ago = (at: number): string => {
+  const seconds = Math.round((Date.now() - at) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.round(minutes / 60)}h ago`;
+};
+
+const toneFor = (ok: boolean): 'good' | 'critical' => (ok ? 'good' : 'critical');
+---
+
+<Shell title="Debug">
+  <header class="page-head">
+    <div>
+      <h1>Debug</h1>
+      <p class="hint">
+        Every call this server makes to Cloudflare, Netlify, GitHub and
+        Plausible, and the configuration it made them with.
+      </p>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Effective configuration</h2>
+      <span class="hint">
+        Resolved the way the providers see it. Secrets show a length, never a
+        value.
+      </span>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Setting</th>
+            <th>Value</th>
+            <th>Coming from</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            config.map((row) => (
+              <tr>
+                <td>{row.service}</td>
+                <td><code>{row.key}</code></td>
+                <td>
+                  {row.secret || !row.set ? (
+                    <span class={row.set ? '' : 'empty'}>{row.display}</span>
+                  ) : (
+                    <code>{row.display}</code>
+                  )}
+                </td>
+                <td>
+                  <span class={row.source === 'unset' ? 'empty' : ''}>
+                    {SOURCE_LABELS[row.source] ?? row.source}
+                  </span>
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <p class="panel-note">
+      <span aria-hidden="true">i</span>
+      <span>
+        Precedence, highest first: <strong>Settings</strong> →
+        <strong>environment</strong> → <strong>.env file</strong>. A value saved
+        in Settings wins over one in <code>.env</code>, which is the usual reason
+        an edit appears to do nothing.
+      </span>
+    </p>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Analytics targets</h2>
+      <span class="hint">Which instance each site is asked about.</span>
+    </div>
+
+    {
+      plausibleSites.length === 0 ? (
+        <p class="empty">
+          No site has a Plausible domain configured
+          {source === 'missing' ? ', because no sites have been added yet' : ''}.
+          The key cannot be verified without one — Plausible has no endpoint that
+          checks a key on its own.
+        </p>
+      ) : (
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th>site_id sent to Plausible</th>
+                <th>Instance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plausibleSites.map((site) => (
+                <tr>
+                  <td>{site.name}</td>
+                  <td><code>{site.plausible?.domain}</code></td>
+                  <td>
+                    <code>
+                      {site.plausible?.baseUrl ??
+                        envValue('PLAUSIBLE_BASE_URL') ??
+                        'https://plausible.io'}
+                    </code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
+
+    <p class="panel-note">
+      <span aria-hidden="true">i</span>
+      <span>
+        Plausible returns <strong>401 “Invalid API key or site ID”</strong> for
+        both a wrong key and a site the key cannot see. If a call below failed
+        that way, check the <code>site_id</code> and instance here before
+        suspecting the key.
+      </span>
+    </p>
+  </section>
+
+  <section class="card" data-live-region="debug-log">
+    <div class="card-head">
+      <h2>Outbound calls</h2>
+      <span class="hint">
+        {stats.total === 0
+          ? 'Nothing recorded yet'
+          : `${stats.total} recorded, ${stats.failures} failed`}
+      </span>
+    </div>
+
+    {
+      stats.byProvider.length > 0 && (
+        <div class="chips">
+          {stats.byProvider.map((row) => (
+            <span class="chip">
+              {row.provider}
+              <strong>{row.total}</strong>
+              {row.failures > 0 && <em class="debug-failed">{row.failures} failed</em>}
+            </span>
+          ))}
+        </div>
+      )
+    }
+
+    {
+      log.length === 0 ? (
+        <p class="empty">
+          Nothing yet. Load a site page or run a connection test in Settings,
+          then come back.
+        </p>
+      ) : (
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Provider</th>
+                <th>Call</th>
+                <th>Result</th>
+                <th class="is-numeric">Took</th>
+              </tr>
+            </thead>
+            <tbody>
+              {log.map((entry) => (
+                <tr class={entry.ok ? '' : 'is-failed-row'}>
+                  <td class="empty nowrap">{ago(entry.at)}</td>
+                  <td>{entry.provider}</td>
+                  <td>
+                    <code class="wrap">{entry.label}</code>
+                    {entry.context && (
+                      <div class="kv-row">
+                        {Object.entries(entry.context).map(([key, value]) => (
+                          <span class="kv">
+                            {key}: <code>{value}</code>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {entry.detail && (
+                      <div class="debug-detail">{entry.detail}</div>
+                    )}
+                  </td>
+                  <td>
+                    <StatusPill
+                      tone={toneFor(entry.ok)}
+                      label={
+                        entry.status === undefined
+                          ? entry.ok
+                            ? 'ok'
+                            : 'no response'
+                          : String(entry.status)
+                      }
+                    />
+                  </td>
+                  <td class="is-numeric empty">{entry.ms}ms</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
+
+    <form method="POST" action="/api/debug" class="button-row">
+      <input type="hidden" name="action" value="clear" />
+      <button class="button" type="submit" disabled={log.length === 0}>
+        Clear log
+      </button>
+      <span class="hint">
+        Kept in memory only, newest 300, and lost on restart. Nothing is written
+        to disk.
+      </span>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Environment</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr>
+            <td>Data directory</td>
+            <td><code>{dataDirectory()}</code></td>
+          </tr>
+          <tr>
+            <td>Site registry</td>
+            <td>
+              {source === 'registry'
+                ? `${sites.length} site${sites.length === 1 ? '' : 's'} from data/sites.json`
+                : 'No data/sites.json yet'}
+            </td>
+          </tr>
+          <tr>
+            <td>Node</td>
+            <td><code>{process.version}</code></td>
+          </tr>
+          <tr>
+            <td>Uptime</td>
+            <td>{Math.round(process.uptime())}s</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</Shell>

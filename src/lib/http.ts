@@ -1,3 +1,10 @@
+import {
+  hostOf as debugHostOf,
+  providerForHost,
+  record,
+  redactUrl,
+  truncate,
+} from './debug';
 import { messageOf } from './types';
 
 export class HttpError extends Error {
@@ -34,6 +41,15 @@ const snippet = (body: string) => {
 
 export interface JsonRequestInit extends Omit<RequestInit, 'signal'> {
   timeoutMs?: number;
+  /**
+   * Extra context for the debug log. The provider is inferred from the host
+   * when omitted; pass it for a self-hosted instance, and use `context` for the
+   * facts that make a failure diagnosable — the site id being asked about, say.
+   */
+  debug?: {
+    provider?: string;
+    context?: Record<string, string>;
+  };
 }
 
 /**
@@ -44,8 +60,27 @@ export const fetchJson = async <T>(
   url: string,
   init: JsonRequestInit = {},
 ): Promise<T> => {
-  const { timeoutMs = 15_000, ...rest } = init;
+  const { timeoutMs = 15_000, debug, ...rest } = init;
   const host = hostOf(url);
+
+  /*
+   * Every REST call in the app funnels through here, which makes this the one
+   * place worth instrumenting. Headers are never logged — credentials live in
+   * them — and the URL is redacted before it is stored.
+   */
+  const started = Date.now();
+  const log = (status: number | undefined, ok: boolean, detail?: string) =>
+    record({
+      kind: 'http',
+      provider: debug?.provider ?? providerForHost(debugHostOf(url)),
+      label: `${(rest.method ?? 'GET').toUpperCase()} ${redactUrl(url)}`,
+      target: host,
+      status,
+      ok,
+      ms: Date.now() - started,
+      detail,
+      context: debug?.context,
+    });
 
   let response: Response;
   try {
@@ -55,16 +90,19 @@ export const fetchJson = async <T>(
     });
   } catch (error) {
     const name = (error as Error).name;
-    if (name === 'TimeoutError' || name === 'AbortError') {
-      throw new Error(`${host} did not respond within ${timeoutMs}ms`);
-    }
-    throw new Error(`Could not reach ${host}: ${messageOf(error)}`);
+    const timedOut = name === 'TimeoutError' || name === 'AbortError';
+    const message = timedOut
+      ? `${host} did not respond within ${timeoutMs}ms`
+      : `Could not reach ${host}: ${messageOf(error)}`;
+    log(undefined, false, message);
+    throw new Error(message);
   }
 
   const text = await response.text();
 
   if (!response.ok) {
     const detail = snippet(text);
+    log(response.status, false, detail || response.statusText);
     throw new HttpError(
       response.status,
       host,
@@ -74,6 +112,8 @@ export const fetchJson = async <T>(
       text,
     );
   }
+
+  log(response.status, true);
 
   if (text.trim() === '') return undefined as T;
 

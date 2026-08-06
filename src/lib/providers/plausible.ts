@@ -1,4 +1,9 @@
 import { TTL, cached, cachedBy } from '../cache';
+import {
+  hostOf as debugHost,
+  record as recordDebug,
+  truncate as truncateDebug,
+} from '../debug';
 import { env, envValue } from '../env';
 import { HttpError, bearer, fetchJson } from '../http';
 import { failed, messageOf, ok, unconfigured } from '../types';
@@ -162,6 +167,19 @@ const query = async (
         },
         body,
         timeoutMs: 20_000,
+        /*
+         * Plausible answers 401 "Invalid API key or site ID" for both a bad key
+         * and a site the key cannot see. Recording which instance and which
+         * site id were used is what tells those two apart.
+         */
+        debug: {
+          provider: 'plausible',
+          context: {
+            instance: instance.baseUrl,
+            site: String(rest.site_id ?? '(none)'),
+            keyChars: String(instance.apiKey.length),
+          },
+        },
       }),
   );
 };
@@ -503,11 +521,44 @@ export const realtimeVisitors = async (
           },
         );
 
-        if (!response.ok) return undefined;
+        if (!response.ok) {
+          /*
+           * Failures only, on purpose. This runs per site on every render, so
+           * logging successes would push everything else out of a 300-entry
+           * buffer within minutes. A silently-failing sidebar badge is exactly
+           * the thing that needs a trace; a working one is not.
+           */
+          recordDebug({
+            kind: 'http',
+            provider: 'plausible',
+            label: `GET /api/v1/stats/realtime/visitors`,
+            target: debugHost(instance.baseUrl),
+            status: response.status,
+            ok: false,
+            ms: 0,
+            detail: truncateDebug(await response.text()),
+            context: {
+              instance: instance.baseUrl,
+              site: domain,
+              note: 'sidebar live count',
+            },
+          });
+          return undefined;
+        }
 
         const visitors = Number.parseInt((await response.text()).trim(), 10);
         return Number.isNaN(visitors) ? undefined : visitors;
-      } catch {
+      } catch (error) {
+        recordDebug({
+          kind: 'http',
+          provider: 'plausible',
+          label: 'GET /api/v1/stats/realtime/visitors',
+          target: debugHost(instance.baseUrl),
+          ok: false,
+          ms: 0,
+          detail: messageOf(error),
+          context: { instance: instance.baseUrl, site: domain },
+        });
         return undefined;
       }
     },

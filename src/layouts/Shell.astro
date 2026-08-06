@@ -16,6 +16,7 @@ const { sites } = await loadRegistry();
 const path = Astro.url.pathname;
 const isDashboard = path === '/';
 const isSettings = path === '/settings';
+const isDebug = path === '/debug';
 const isAddSite = path === '/sites/new';
 
 /*
@@ -151,6 +152,11 @@ const labelFor = (site: (typeof sites)[number]): string =>
             <li>
               <a href="/settings" aria-current={isSettings ? 'page' : undefined}>
                 <span class="nav-name">Settings</span>
+              </a>
+            </li>
+            <li>
+              <a href="/debug" aria-current={isDebug ? 'page' : undefined}>
+                <span class="nav-name">Debug</span>
               </a>
             </li>
             <li>
