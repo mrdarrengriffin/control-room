@@ -6,6 +6,13 @@ name: Publish image
 on:
   push:
     branches: [main]
+    # Docs don't reach the prod image (it copies only dist/, server/ and
+    # package.json), so a prose-only push has nothing to rebuild. Releases and
+    # manual runs always build regardless of what changed.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
   release:
     types: [published]
   workflow_dispatch:

@@ -13,7 +13,9 @@ name: control-room
 
 services:
   control-room:
-    image: ghcr.io/mrdarrengriffin/control-room:latest
+    # :latest moves only when a release is cut, so updating is a deliberate act.
+    # Set CONTROL_ROOM_TAG=main to follow every push to main instead.
+    image: ghcr.io/mrdarrengriffin/control-room:${CONTROL_ROOM_TAG:-latest}
     restart: unless-stopped
 
     ports:
