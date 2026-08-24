@@ -48,7 +48,8 @@ export interface UpdateStatus {
   tag: string;
   localSha: string;
   localVersion?: string;
-  remoteSha: string;
+  /** Absent for an exact version pin — the registry is never asked. */
+  remoteSha?: string;
   remoteVersion?: string;
 }
 
@@ -90,6 +91,22 @@ const checkUncached = async (): Promise<PanelResult<UpdateStatus>> => {
     return unconfigured(
       'Running from a source checkout, so updates come through git — the registry has nothing to say about this build.',
     );
+  }
+
+  /*
+   * An exact pin never moves, so there is nothing to ask the registry — the
+   * answer is known before the question. This also matters practically: it
+   * spares installs pinned to a release published before revision labels
+   * existed from a permanent "image predates update checks" error for a tag
+   * that will never be republished.
+   */
+  if (isPinnedTag(tag)) {
+    return ok({
+      updateAvailable: false,
+      tag,
+      localSha: sha,
+      localVersion: version,
+    });
   }
 
   const slash = image.indexOf('/');

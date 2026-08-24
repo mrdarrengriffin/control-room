@@ -594,6 +594,10 @@ Framing it as "has the tag moved" rather than "is there a newer release" makes
 pinning behave correctly for free: `latest` updates on releases, `main` on
 every push, `1.2` on patch releases, and an exact `1.2.3` pin reports up to
 date forever, because a pinned tag never moves — which is what pinning means.
+An exact pin short-circuits before any network call: the answer is known
+before the question, and it spares installs pinned to a pre-label release a
+permanent "image predates update checks" error for a tag that will never be
+republished.
 The compose file passes `CONTROL_ROOM_TAG` *into* the container for this; a
 container run some other way defaults to comparing against `latest`, so set the
 variable if you follow anything else.
