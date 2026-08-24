@@ -279,11 +279,11 @@ minute is illusory for these sources.** Plausible's realtime figure is a
 requests move on the order of minutes.
 
 TTLs live together in `TTL`: analytics and activity 60s, realtime 20s,
-Cloudflare zones 1h, Netlify site resolution effectively permanent for a
-session. A stale entry is returned **immediately** and refreshed out of band, so
+Cloudflare zones 1h, Netlify and Plausible site resolution effectively permanent
+for a session. A stale entry is returned **immediately** and refreshed out of band, so
 only the very first call for a key ever blocks.
 
-Three deliberate details:
+Four deliberate details:
 
 - **`unconfigured` results are never cached.** They involve no network call, and
   caching one would keep reporting "not configured" for a minute after you add
@@ -292,6 +292,13 @@ Three deliberate details:
   upstream, short enough to recover quickly.
 - **Saving a token calls `invalidateAll()`**, so a cached auth failure can't
   outlive the fix.
+- **Concurrent callers of a cold key share one request.** The stale path always
+  had this via `refreshing`; the cold path did not, and a fanned-out page is
+  where it bites. A site page asks for seven Plausible panels *and* the site-id
+  resolution at once, all eight needing the same resolution — eight round trips
+  to learn one fact, and a measured **4.3s** first render. With the in-flight map
+  it is one request and **~470ms**, of which most is Vite compiling the route:
+  cold data on an already-compiled route is ~120ms.
 
 Measured upstream costs, for reference: Plausible query 151ms, Cloudflare zone
 list 531ms, Netlify site lookup 707ms (the slowest, and resolution may try two),
@@ -418,6 +425,42 @@ finite range. On the day it was found this was the difference between **540 and
 1,670 visitors**. Windows are computed in **UTC**, matching the timezone the
 Plausible instance echoes back; a site configured in another timezone could be
 off by one boundary day.
+
+### Plausible's 401 covers two very different causes
+
+`401 Invalid API key or site ID` is returned both for a bad key **and** for a
+site id the key cannot see. One message, two causes — and it has sent debugging
+down the wrong path twice.
+
+The first time, five fictional example sites were being queried, so the settings
+page reported a **valid key as invalid** (see
+[No example data, ever](#no-example-data-ever)). The second time, the registry
+loader filled in a missing `plausible.domain` with `?? parsedUrl.hostname`. That
+reads as obviously correct — a Plausible site id *is* a domain — but it commits
+to one spelling: `https://www.openhomefoundation.org` became the site id
+`www.openhomefoundation.org`, while the install knows that site as
+`openhomefoundation.org`. Every panel 401'd, the Debug log filled with what
+looked exactly like an auth failure, and the key, the instance and the account
+were all perfect. The edit form then offered the wrong value pre-filled, ready to
+be saved.
+
+Two things follow, and the second is the one that matters:
+
+- **`plausible.domain` is optional and never invented.** When the registry
+  doesn't name one, `resolveSiteId()` tries the site's hostname *and* its `www`
+  counterpart and caches which one the install answered to for 24h — the same
+  toggling the Netlify provider already does, for the same reason. A site added
+  before the Plausible key was configured therefore starts working on its own,
+  instead of sitting blank until someone re-runs discovery.
+- **Deriving a value is fine; presenting a derived value as a declared one is
+  not.** The registry loader now leaves `plausible` undefined rather than
+  guessing, so "what you told us" and "what we worked out" stay distinguishable.
+  The Debug page's site-id table shows which of the two each site is using, and
+  says so when the resolved id differs from what `sites.json` claims.
+
+Once the spelling has been resolved, a 401 really is the key or the account, so
+that is what the message now says. A 401 for *both* spellings names both, rather
+than blaming the key alone.
 
 ### Netlify: don't trust `GET /sites`
 
@@ -557,6 +600,11 @@ sites, by the person who wrote the tag — and the other four kept lying. The fi
 is that **a site in the registry is always a real site**, so no caller has to
 remember anything.
 
+The ambiguous 401 that made this so hard to read went on to cost a second
+afternoon on its own; it is now handled inside the provider rather than at each
+call site, for exactly the reason above — see
+[Plausible's 401 covers two very different causes](#plausibles-401-covers-two-very-different-causes).
+
 If you are tempted to re-add sample data for onboarding: make it a registry the
 user explicitly chose (a "load examples" button writing `sites.json`), never a
 silent fallback that pretends to be one.
@@ -572,8 +620,7 @@ Two ways to list a site. Shorthand, when everything can be derived:
 ```
 
 Each entry becomes its own site — subdomains included, since Plausible treats
-each as a separate property. Slug, name, url and `plausible.domain` are all
-derived from the domain.
+each as a separate property. Slug, name and url are derived from the domain.
 
 Full entries, for anything needing integration ids or custom test pages:
 
@@ -605,7 +652,7 @@ add ids.
 | `slug` | Immutable — runs and artifacts are stored under it |
 | `cloudflare.zoneId` | Cloudflare → site → Overview |
 | `netlify.siteId` | Optional; resolved by domain when omitted. `enabled: false` silences the panel |
-| `plausible.domain` | Defaults to the hostname of `url` |
+| `plausible.domain` | Optional. Omit it and the provider resolves it — see [Plausible's 401 covers two very different causes](#plausibles-401-covers-two-very-different-causes) |
 | `plausible.baseUrl` | Only when this site is on a *different* Plausible instance |
 | `plausible.keyEnv` | Name of the env var holding that instance's key |
 | `github.repo` | `owner/repo`, case-sensitive |

@@ -238,7 +238,9 @@ const breakdowns = [
         <header class="group-head">
           <div>
             <h2>Analytics</h2>
-            <span class="group-meta">Plausible · {site.plausible?.domain}</span>
+            <span class="group-meta">
+              Plausible · {analytics.siteId ?? site.plausible?.domain}
+            </span>
           </div>
           <RangeFilter current={range} />
         </header>

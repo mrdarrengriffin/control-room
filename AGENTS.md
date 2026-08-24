@@ -4,9 +4,10 @@
 
 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** covers how this is built and,
 more usefully, a long list of things that were surprising or wrong the first
-time — Plausible's date ranges, Netlify's loose site matching, Lighthouse 13's
-renamed audit ids, coordinate spaces in element crops, the WebSocket/middleware
-constraint. Check it before changing providers, caching or the container.
+time — Plausible's date ranges and its one-message-two-causes 401, Netlify's
+loose site matching, Lighthouse 13's renamed audit ids, coordinate spaces in
+element crops, the WebSocket/middleware constraint. Check it before changing
+providers, caching or the container.
 
 ## Running it
 
