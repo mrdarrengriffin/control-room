@@ -57,6 +57,16 @@ jobs:
           # Provided automatically; no secret to create.
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Labels only (org.opencontainers.image.revision and friends); tagging
+      # still happens in the merge job. The revision label matters beyond
+      # provenance: the in-app update check reads it off the registry to decide
+      # whether the tag has moved on from the running install.
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
@@ -65,6 +75,14 @@ jobs:
           file: docker/Dockerfile
           target: prod
           platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The same identity, baked into the environment so the running app
+          # knows what it is (see src/lib/update.ts). VERSION is the release tag
+          # when a release triggered this, otherwise the branch name.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            VERSION=${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+            IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # No tags here — the merge job below is what names the image. Pushing
           # a tag from each arch would have them overwrite each other instead of
           # combining into one multi-arch image.

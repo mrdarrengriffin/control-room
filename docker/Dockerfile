@@ -93,6 +93,17 @@ COPY LICENSE NOTICE /workspace/
 # distinguished those fictional sites from real ones and they were handed
 # straight to the live providers.
 
+# Who this build is, stamped by the publish workflow. The app compares its own
+# sha against what the registry currently serves for the tag it follows (see
+# src/lib/update.ts). All three stay empty in a local build, which the app reads
+# as "source checkout — updates come via git, not the registry".
+ARG GIT_SHA=""
+ARG VERSION=""
+ARG IMAGE=""
+ENV CONTROL_ROOM_BUILD_SHA=$GIT_SHA \
+    CONTROL_ROOM_BUILD_VERSION=$VERSION \
+    CONTROL_ROOM_IMAGE=$IMAGE
+
 EXPOSE 4321
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "./server/index.mjs"]

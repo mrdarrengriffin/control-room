@@ -429,6 +429,22 @@ h3 {
   font-weight: 600;
 }
 
+/*
+ * "Update available" in the sidebar. A dot plus words, not colour alone — and
+ * deliberately quieter than the status pills: it is an invitation, not an
+ * alarm, and it sits in the navigation on every page.
+ */
+.update-notice .nav-name::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  margin-right: 7px;
+  vertical-align: 1px;
+}
+
 .main {
   min-width: 0;
   padding: 24px 28px 64px;
