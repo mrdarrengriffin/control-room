@@ -11,6 +11,12 @@ import {
 } from '../lib/providers/plausible';
 import { serviceStatuses } from '../lib/secrets';
 import { loadRegistry } from '../lib/sites';
+import {
+  buildInfo,
+  checkForUpdate,
+  isPinnedTag,
+  updaterConfigured,
+} from '../lib/update';
 import type { ConfigSource } from '../lib/env';
 import type { PanelResult } from '../lib/types';
 
@@ -18,6 +24,14 @@ const params = Astro.url.searchParams;
 const flash = params.get('flash');
 const flashMessage = params.get('message');
 const testing = params.get('test');
+// Set by /api/update's redirect: the updater is pulling the new image and
+// this container is about to be replaced under us.
+const updating = params.get('updating') === '1';
+
+const build = buildInfo();
+const update = await checkForUpdate();
+const canTrigger = updaterConfigured();
+const shortSha = (sha: string | undefined) => (sha ?? '').slice(0, 7);
 
 const services = await serviceStatuses();
 
@@ -257,4 +271,126 @@ const testHref = (id: string) => {
       </div>
     ))
   }
+
+  <div class="card" id="updates">
+    <div class="card-head">
+      <h2>Software update</h2>
+      {
+        update.status === 'ok' && (
+          <StatusPill
+            tone={(update.data.updateAvailable ? 'warning' : 'good') as Tone}
+            label={update.data.updateAvailable ? 'update available' : 'up to date'}
+          />
+        )
+      }
+      {
+        update.status === 'error' && (
+          <StatusPill tone={'neutral' as Tone} label="check failed" />
+        )
+      }
+    </div>
+
+    {
+      update.status === 'unconfigured' ? (
+        <p class="finding-description">{update.reason}</p>
+      ) : (
+        <p class="finding-description">
+          Running <strong>{build.version || 'an unlabelled build'}</strong>
+          {build.sha ? <> (<code>{shortSha(build.sha)}</code>)</> : null}, following
+          the <code>{build.tag}</code> tag.
+          {
+            isPinnedTag(build.tag) && (
+              <>
+                {' '}That is an exact version pin, so this install only changes
+                when you edit <code>CONTROL_ROOM_TAG</code> — the tag itself
+                never moves.
+              </>
+            )
+          }
+        </p>
+      )
+    }
+
+    {
+      update.status === 'error' && (
+        <p class="finding-description" style="color:var(--ink-muted)">
+          Could not compare against the registry: {update.reason}
+        </p>
+      )
+    }
+
+    {
+      update.status === 'ok' && update.data.updateAvailable && (
+        <p class="finding-description">
+          The registry now serves{' '}
+          <strong>{update.data.remoteVersion || 'a newer build'}</strong>{' '}
+          (<code>{shortSha(update.data.remoteSha)}</code>) for{' '}
+          <code>{update.data.tag}</code>.
+        </p>
+      )
+    }
+
+    {
+      updating ? (
+        <p class="flash is-ok" id="update-restart-watch">
+          Pulling the new image and restarting… this page will reconnect by
+          itself.
+        </p>
+      ) : update.status === 'ok' && update.data.updateAvailable ? (
+        canTrigger ? (
+          <form method="POST" action="/api/update" class="button-row">
+            <button class="button is-primary" type="submit">Update now</button>
+          </form>
+        ) : (
+          <p class="finding-description">
+            No updater is running beside this container, so update from the
+            machine itself:{' '}
+            <code>{'docker compose pull && docker compose up -d'}</code>. The
+            compose file in <code>deploy/</code> includes an updater service
+            that makes this a one-click button.
+          </p>
+        )
+      ) : null
+    }
+  </div>
 </Shell>
+
+<script>
+  /*
+   * Only present mid-update. The container is being replaced, so watch the open
+   * health endpoint: it keeps answering until the swap, goes unreachable for a
+   * few seconds, then answers again from the new image — and only that
+   * down-then-up transition means the restart happened. Reloading on the first
+   * OK would declare victory while the old container was still serving.
+   */
+  const watch = document.getElementById('update-restart-watch');
+  if (watch) {
+    const started = Date.now();
+    let sawDown = false;
+
+    const tick = async () => {
+      if (Date.now() - started > 10 * 60_000) {
+        watch.textContent =
+          'Still not back after 10 minutes — check `docker compose logs updater` on the machine.';
+        watch.classList.remove('is-ok');
+        watch.classList.add('is-error');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/health', { cache: 'no-store' });
+        if (response.ok && sawDown) {
+          location.href = '/settings#updates';
+          return;
+        }
+        if (!response.ok) sawDown = true;
+      } catch {
+        sawDown = true;
+      }
+
+      setTimeout(tick, 3_000);
+    };
+
+    setTimeout(tick, 3_000);
+  }
+</script>

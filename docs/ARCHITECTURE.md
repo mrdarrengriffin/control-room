@@ -24,6 +24,7 @@ next to it.
 - [Reading the scroll-performance numbers](#reading-the-scroll-performance-numbers)
 - [Provider gotchas](#provider-gotchas)
 - [Container gotchas](#container-gotchas)
+- [Self-update](#self-update)
 - [No example data, ever](#no-example-data-ever)
   - [The `sites.json` format](#the-sitesjson-format)
 - [Not built yet](#not-built-yet)
@@ -573,6 +574,60 @@ an empty dashboard, and the first write happens when someone sets a password.
 
 This is worth stating because it briefly wasn't true, and the failure was
 instructive — see [No example data, ever](#no-example-data-ever).
+
+## Self-update
+
+The Settings page can update a production install in place: when the image tag
+this install follows has moved on, the sidebar shows a quiet notice and
+Settings offers **Update now**. Two halves, deliberately separated:
+
+**Noticing** (`src/lib/update.ts`) asks the registry a narrow question: *does
+the tag I was started from point at a different image than the one I am?* The
+publish workflow stamps every image with its git sha — as the
+`org.opencontainers.image.revision` label and as `CONTROL_ROOM_BUILD_SHA` in
+the environment — and the check compares the two: anonymous pull token →
+manifest for the followed tag → this machine's arch entry (buildx attestation
+manifests report their platform as `unknown`, so match real os/arch rather than
+taking the first) → config blob → labels.
+
+Framing it as "has the tag moved" rather than "is there a newer release" makes
+pinning behave correctly for free: `latest` updates on releases, `main` on
+every push, `1.2` on patch releases, and an exact `1.2.3` pin reports up to
+date forever, because a pinned tag never moves — which is what pinning means.
+The compose file passes `CONTROL_ROOM_TAG` *into* the container for this; a
+container run some other way defaults to comparing against `latest`, so set the
+variable if you follow anything else.
+
+Three consequences of the check rendering in the sidebar on every page:
+
+- Registry calls use a 5s timeout, and **failures are cached for 10 minutes**
+  rather than the usual 15s error TTL — with the short TTL, a dead registry
+  would re-block a page render every 15 seconds.
+- A source checkout short-circuits to `unconfigured` before any network call
+  (no baked sha, nothing to compare), so dev servers never talk to GHCR.
+- Anything other than a definite "yes" renders nothing in the navigation. An
+  update check must never put an error in the nav.
+
+**Acting** is not something the app container can do to itself — replacing a
+running container needs the Docker socket, and the socket is root-equivalent on
+the host. It does not belong in a container that drives a real browser across
+arbitrary websites. So the deploy compose file runs a separate `updater`
+service — Watchtower in **HTTP API mode** — and the app's only power is to POST
+"update now" to it with a shared token. Watchtower in this mode polls nothing
+and schedules nothing; it acts only when asked, only on containers labelled
+`com.centurylinklabs.watchtower.enable`, its port is never published, and old
+images are cleaned up after a switch. Remove the service and the button
+degrades to printing `docker compose pull && docker compose up -d`.
+
+One timing subtlety, learned from reading rather than debugging but worth
+recording: Watchtower answers a *refusal* (bad token) immediately, but on
+success it **holds the HTTP connection for the entire pull-and-recreate — and
+the requesting container is killed partway through**, so the app would wait on
+a socket that can only die. `triggerUpdate()` therefore waits three seconds for
+a refusal, then reports "started" and lets the settings page watch
+`/api/health` for the restart: the page reloads only after seeing the endpoint
+go *down and come back*, because reloading on the first OK would declare
+victory while the old container was still serving.
 
 ## No example data, ever
 

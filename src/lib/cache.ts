@@ -163,4 +163,12 @@ export const TTL = {
   zones: 60 * 60_000,
   /** Which Netlify site serves a domain effectively never changes. */
   resolution: 24 * 60 * 60_000,
+  /** New images land on the order of days; noticing one late costs nothing. */
+  updateCheck: 30 * 60_000,
+  /**
+   * A failed registry check is held far longer than the usual 15s error TTL:
+   * the check renders in the sidebar on every page, so with the short TTL a
+   * dead registry would re-block a render every 15 seconds.
+   */
+  updateCheckFailed: 10 * 60_000,
 } as const;

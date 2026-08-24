@@ -5,6 +5,7 @@ import { envValue } from '../lib/env';
 import { realtimeForSites } from '../lib/providers/plausible';
 import { domainOf, titlesFor } from '../lib/site-meta';
 import { loadRegistry } from '../lib/sites';
+import { checkForUpdate } from '../lib/update';
 
 interface Props {
   title: string;
@@ -42,6 +43,17 @@ const labelFor = (site: (typeof sites)[number]): string =>
   labelMode === 'domain'
     ? domainOf(site)
     : (siteTitles.get(site.slug) ?? site.name);
+
+/*
+ * A quiet nudge when the image tag this install follows has moved on. Cached
+ * for 30 minutes (failures for 10) inside the check, so rendering it here
+ * costs one registry round trip per half hour, not per page. Anything other
+ * than a definite "yes" renders nothing — an update check must never put an
+ * error in the navigation.
+ */
+const updateCheck = await checkForUpdate();
+const updateAvailable =
+  updateCheck.status === 'ok' && updateCheck.data.updateAvailable;
 ---
 
 <html lang="en">
@@ -155,6 +167,15 @@ const labelFor = (site: (typeof sites)[number]): string =>
 
         <div style="margin-top:auto; display:flex; flex-direction:column; gap:8px;">
           <ul class="nav-list">
+            {
+              updateAvailable && (
+                <li>
+                  <a href="/settings#updates" class="update-notice">
+                    <span class="nav-name">Update available</span>
+                  </a>
+                </li>
+              )
+            }
             <li>
               <a href="/settings" aria-current={isSettings ? 'page' : undefined}>
                 <span class="nav-name">Settings</span>

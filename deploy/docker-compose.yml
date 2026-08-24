@@ -3,7 +3,9 @@
 #
 #   docker compose up -d
 #
-# To update to the latest release:
+# To update, press the button on the Settings page when it says an update is
+# available — the updater service below does the pull and restart. The manual
+# equivalent always works too:
 #
 #   docker compose pull && docker compose up -d
 #
@@ -41,6 +43,20 @@ services:
       CONTROL_ROOM_DATA_DIR: /workspace/data
       # The bundled gh CLI reads GH_TOKEN; kept in step with the settings key.
       GH_TOKEN: ${GITHUB_TOKEN:-}
+      # Passed *into* the container as well as used in `image:` above, so the
+      # app knows which tag it follows and can check the registry for movement.
+      # An exact pin (CONTROL_ROOM_TAG=1.2.3) therefore just reports "up to
+      # date" forever — a pinned tag never moves, which is the point of a pin.
+      CONTROL_ROOM_TAG: ${CONTROL_ROOM_TAG:-latest}
+      # Shared with the updater service below; this is how the in-app Update
+      # button authenticates to it. The default is fine for most installs —
+      # the updater is only reachable from inside this compose network — but
+      # you can set your own in .env.
+      CONTROL_ROOM_UPDATE_TOKEN: ${CONTROL_ROOM_UPDATE_TOKEN:-control-room-updater}
+
+    # Marks this container as the one the updater is allowed to touch.
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
 
     # Chromium crashes on Docker's default 64MB /dev/shm, and this app runs
     # Lighthouse and Playwright.
@@ -56,3 +72,32 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # The hands behind the in-app Update button. Watchtower in HTTP API mode does
+  # nothing on its own — no polling, no scheduled updates — until Control Room
+  # POSTs to it, at which point it pulls the tag above and recreates the app
+  # container with the same configuration. `docker compose pull && docker
+  # compose up -d` remains the manual equivalent; removing this whole service
+  # only costs the button.
+  #
+  # It needs the Docker socket — that is what "recreate a container" requires,
+  # and it is root-equivalent on this machine. Scoping is therefore tight:
+  # label-enable means it will only ever touch containers explicitly labelled
+  # for it (the app above, nothing else it finds on the host), the API is
+  # token-gated, and no port is published, so it is reachable only from inside
+  # this compose network.
+  updater:
+    image: containrrr/watchtower:1.7.1
+    restart: unless-stopped
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      # API-only: update when asked, never on a timer.
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: ${CONTROL_ROOM_UPDATE_TOKEN:-control-room-updater}
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Old images are deleted after a successful update, or a year of updates
+      # quietly fills the disk with ~3GB layers nothing runs any more.
+      WATCHTOWER_CLEANUP: "true"

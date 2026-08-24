@@ -136,6 +136,15 @@ shorthand is just a list of domains:
 
 ## 🔄 Updating
 
+Control Room notices when the image tag it follows has moved on: the sidebar
+shows **Update available**, and Settings grows an **Update now** button that
+pulls the new image and restarts onto it. The button is powered by the small
+`updater` service in the compose file (Watchtower in API-only mode — it never
+updates anything on a timer, only when you press the button).
+
+The manual equivalent always works, and is the only way if you removed the
+updater service:
+
 ```sh
 docker compose pull && docker compose up -d
 ```
@@ -154,7 +163,10 @@ Images are published to
 | `1.2.3` / `1.2` | A release is published | You want to pin a version |
 
 To follow `main` instead of releases, set `CONTROL_ROOM_TAG=main` in a `.env`
-file beside your compose file.
+file beside your compose file. The update check follows the same tag: on
+`latest` it fires when a release is cut, on `main` on every push, on `1.2` on
+patch releases — and on an exact `1.2.3` pin it stays quiet forever, because a
+pinned tag never moves and that is the point of pinning.
 
 Images are multi-arch — **linux/amd64** and **linux/arm64** — so Apple Silicon,
 Intel Macs, PCs and ARM boards like a Raspberry Pi 5 all pull the right one
