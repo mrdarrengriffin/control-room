@@ -104,9 +104,9 @@ export const parseSite = (
     return undefined;
   }
 
-  let parsedUrl: URL;
+  // Parsed for validation only; nothing is derived from it.
   try {
-    parsedUrl = new URL(url);
+    new URL(url);
   } catch {
     problems.push(`"${slug}" has an invalid url: ${url}`);
     return undefined;
@@ -121,10 +121,28 @@ export const parseSite = (
    */
   const netlifyEnabled = nestedBoolean(raw, 'netlify', 'enabled');
   const githubRepo = nestedString(raw, 'github', 'repo');
-  const plausibleDomain =
-    nestedString(raw, 'plausible', 'domain') ?? parsedUrl.hostname;
+  /*
+   * No fallback to the URL's hostname here, though there used to be one.
+   * `?? parsedUrl.hostname` looked harmless — a Plausible site id *is* a domain
+   * — but it guessed one specific spelling and then presented the guess as if
+   * the registry had said it. A site registered as https://www.example.org whose
+   * Plausible install knows it as `example.org` got `www.example.org`, which
+   * Plausible answers with 401 "Invalid API key or site ID", so a perfectly good
+   * key read as broken and the edit form helpfully offered to save the wrong
+   * value. Deriving is fine; deriving *one* spelling and calling it declared is
+   * not. The provider now resolves it and knows which spellings it tried.
+   */
+  const plausibleDomain = nestedString(raw, 'plausible', 'domain');
   const plausibleBaseUrl = nestedString(raw, 'plausible', 'baseUrl');
   const plausibleKeyEnv = nestedString(raw, 'plausible', 'keyEnv');
+  const plausible =
+    plausibleDomain || plausibleBaseUrl || plausibleKeyEnv
+      ? {
+          domain: plausibleDomain,
+          baseUrl: plausibleBaseUrl,
+          keyEnv: plausibleKeyEnv,
+        }
+      : undefined;
 
   if (githubRepo && !/^[^/\s]+\/[^/\s]+$/.test(githubRepo)) {
     problems.push(
@@ -143,11 +161,7 @@ export const parseSite = (
       netlifySiteId || netlifyEnabled !== undefined
         ? { siteId: netlifySiteId, enabled: netlifyEnabled }
         : undefined,
-    plausible: {
-      domain: plausibleDomain,
-      baseUrl: plausibleBaseUrl,
-      keyEnv: plausibleKeyEnv,
-    },
+    plausible,
     github: githubRepo ? { repo: githubRepo } : undefined,
     testPages: optionalStringArray(raw, 'testPages') ?? ['/'],
     interactivePages: optionalStringArray(raw, 'interactivePages'),
@@ -463,7 +477,9 @@ export const updateSite = async (
   setOrDelete(
     entry,
     'plausible',
-    edit.plausibleDomain
+    // Any one of the three is worth keeping: a site can name an instance and let
+    // the provider resolve the domain, so the domain is not the gate any more.
+    edit.plausibleDomain || edit.plausibleBaseUrl || edit.plausibleKeyEnv
       ? (compact({
           domain: edit.plausibleDomain,
           baseUrl: edit.plausibleBaseUrl ?? previousPlausible.baseUrl,

@@ -2,7 +2,7 @@ import { parseJsonOutput, runCommand } from './exec';
 import { env } from './env';
 import { listZones } from './providers/cloudflare';
 import { findSiteForHost } from './providers/netlify';
-import { summary } from './providers/plausible';
+import { findSiteId, hostCandidates, summary } from './providers/plausible';
 import { loadRegistry, slugFromDomain } from './sites';
 import { messageOf } from './types';
 import type { Site } from './types';
@@ -48,18 +48,6 @@ const unavailable = (detail: string): Finding<never> => ({
   status: 'unavailable',
   detail,
 });
-
-/**
- * A hostname and its www counterpart. Services disagree about which they know a
- * site by: Netlify has openhomefoundation.org under `www.`, while
- * handbook.openhomefoundation.org has no www at all.
- */
-const hostCandidates = (hostname: string): string[] => {
-  const toggled = hostname.startsWith('www.')
-    ? hostname.slice(4)
-    : `www.${hostname}`;
-  return [hostname, toggled];
-};
 
 /** owner/repo out of a git URL, tolerating dots in the repo name. */
 export const parseRepoUrl = (url: string): string | undefined => {
@@ -148,44 +136,53 @@ const discoverPlausible = async (
     if (!seen) instances.push({ baseUrl, keyEnv });
   }
 
-  const domains = hostCandidates(hostname);
   let sawUnconfigured: string | undefined;
 
   for (const instance of instances) {
-    for (const domain of domains) {
-      const probe: Site = {
-        slug: 'discovery-probe',
-        name: 'discovery probe',
-        url: `https://${domain}`,
-        plausible: { domain, baseUrl: instance.baseUrl, keyEnv: instance.keyEnv },
-      };
+    /*
+     * No `domain` on the probe on purpose. The provider derives the candidates
+     * from the URL and resolves which spelling the install actually knows, so
+     * discovery no longer repeats that logic — and cannot drift from it.
+     */
+    const probe: Site = {
+      slug: 'discovery-probe',
+      name: 'discovery probe',
+      url: `https://${hostname}`,
+      plausible: { baseUrl: instance.baseUrl, keyEnv: instance.keyEnv },
+    };
 
-      const result = await summary(probe, '7d');
+    const found = await findSiteId(probe);
 
-      if (result.status === 'ok') {
-        return {
-          status: 'found',
-          value: {
-            domain,
-            visitors: result.data.visitors,
-            baseUrl: instance.baseUrl,
-            keyEnv: instance.keyEnv,
-          },
-          detail: `${result.data.visitors} visitors in the last 7 days${
-            instance.baseUrl ? ` on ${instance.baseUrl}` : ''
-          }`,
-        };
-      }
-
-      if (result.status === 'unconfigured') sawUnconfigured = result.reason;
+    if (found.status === 'unconfigured') {
+      sawUnconfigured = found.reason;
+      continue;
     }
+    if (found.status !== 'ok') continue;
+
+    const domain = found.data;
+    const stats = await summary(
+      {
+        ...probe,
+        plausible: { ...probe.plausible, domain },
+      },
+      '7d',
+    );
+    const visitors = stats.status === 'ok' ? stats.data.visitors : 0;
+
+    return {
+      status: 'found',
+      value: { domain, visitors, baseUrl: instance.baseUrl, keyEnv: instance.keyEnv },
+      detail: `${visitors} visitors in the last 7 days${
+        instance.baseUrl ? ` on ${instance.baseUrl}` : ''
+      }`,
+    };
   }
 
   if (sawUnconfigured) return unavailable(sawUnconfigured);
 
   return {
     status: 'not-found',
-    detail: `No Plausible site for ${domains.join(' or ')} on ${instances.length} instance(s). It may be on another Plausible install.`,
+    detail: `No Plausible site for ${hostCandidates(hostname).join(' or ')} on ${instances.length} instance(s). It may be on another Plausible install.`,
   };
 };
 

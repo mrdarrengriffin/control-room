@@ -6,6 +6,7 @@ import { dataDirectory, sourceOf } from '../lib/env';
 import { SERVICES } from '../lib/secrets';
 import { loadRegistry } from '../lib/sites';
 import { envValue } from '../lib/env';
+import { findSiteId } from '../lib/providers/plausible';
 
 /**
  * Why did that fail?
@@ -53,7 +54,19 @@ const config = SERVICES.flatMap((service) =>
   }),
 );
 
-const plausibleSites = sites.filter((site) => site.plausible?.domain);
+/*
+ * Every site, not just the ones with a configured domain: the provider resolves
+ * the site id from the URL when the registry does not name one, and a site
+ * relying on that is precisely the case worth being able to see here. Showing
+ * whether the id was declared or derived answers "why is it asking for that?".
+ */
+const plausibleSites = await Promise.all(
+  sites.map(async (site) => ({
+    site,
+    declared: site.plausible?.domain,
+    resolved: await findSiteId(site),
+  })),
+);
 
 const ago = (at: number): string => {
   const seconds = Math.round((Date.now() - at) / 1000);
@@ -141,10 +154,8 @@ const toneFor = (ok: boolean): 'good' | 'critical' => (ok ? 'good' : 'critical')
     {
       plausibleSites.length === 0 ? (
         <p class="empty">
-          No site has a Plausible domain configured
-          {source === 'missing' ? ', because no sites have been added yet' : ''}.
-          The key cannot be verified without one — Plausible has no endpoint that
-          checks a key on its own.
+          No sites have been added yet. The key cannot be verified without one —
+          Plausible has no endpoint that checks a key on its own.
         </p>
       ) : (
         <div class="table-wrap">
@@ -153,14 +164,30 @@ const toneFor = (ok: boolean): 'good' | 'critical' => (ok ? 'good' : 'critical')
               <tr>
                 <th>Site</th>
                 <th>site_id sent to Plausible</th>
+                <th>From</th>
                 <th>Instance</th>
               </tr>
             </thead>
             <tbody>
-              {plausibleSites.map((site) => (
+              {plausibleSites.map(({ site, declared, resolved }) => (
                 <tr>
                   <td>{site.name}</td>
-                  <td><code>{site.plausible?.domain}</code></td>
+                  <td>
+                    {resolved.status === 'ok' ? (
+                      <code>{resolved.data}</code>
+                    ) : (
+                      <span class="empty">{resolved.reason}</span>
+                    )}
+                  </td>
+                  <td>
+                    {resolved.status !== 'ok'
+                      ? '—'
+                      : declared === resolved.data
+                        ? 'sites.json'
+                        : declared
+                          ? `resolved (sites.json says ${declared})`
+                          : 'derived from the site URL'}
+                  </td>
                   <td>
                     <code>
                       {site.plausible?.baseUrl ??
